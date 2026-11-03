@@ -43,7 +43,8 @@ const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`)
 
 function page(body: string, status = 200, headers = new Headers()): Response {
   headers.set('content-type', 'text/html; charset=utf-8');
-  headers.set('content-security-policy', "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'");
+  // No form-action: browsers apply it to the redirect after Allow, which would block the return to the app.
+  headers.set('content-security-policy', "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'");
   return new Response(
     `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>memory-gateway sign-in</title>

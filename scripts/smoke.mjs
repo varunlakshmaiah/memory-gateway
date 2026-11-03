@@ -150,6 +150,8 @@ else {
   const handle = html.match(/name="handle" value="([^"]+)"/)?.[1];
   const cookie = consent.headers.getSetCookie().map((c) => c.split(';')[0]).join('; ');
   ok('consent page shows', consent.status === 200 && !!handle && html.includes('smoke test'), html.slice(0, 200));
+  // Browsers apply form-action to the redirect after Allow; 'self' there silently blocks the return to the app.
+  ok('consent page lets the browser return to the app', !/form-action/.test(consent.headers.get('content-security-policy') ?? ''));
   const post = (tok) => fetch(authUrl, {
     method: 'POST', redirect: 'manual',
     headers: { cookie, 'content-type': 'application/x-www-form-urlencoded' },
