@@ -1,6 +1,6 @@
-/** Plain HTTP binding for agents without MCP. Same four operations, same auth. */
+/** Plain HTTP binding for agents without MCP. Same operations, same auth. */
 import { ToolError, type Ctx } from './types';
-import { listNotes, readNote, searchNotes, writeNote } from './tools';
+import { editNote, listNotes, readNote, searchNotes, writeNote } from './tools';
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
@@ -33,6 +33,15 @@ export async function handleApi(req: Request, url: URL, pathname: string, ctx: C
         const overwrite = url.searchParams.get('overwrite') === 'true';
         const r = await writeNote(ctx.env, ctx.agent, path, await req.text(), overwrite);
         return json(r, r.created ? 201 : 200);
+      }
+      if (req.method === 'PATCH') {
+        let body: { old_text?: unknown; new_text?: unknown };
+        try {
+          body = await req.json();
+        } catch {
+          throw new ToolError('Body must be JSON: {"old_text": "...", "new_text": "..."}');
+        }
+        return json(await editNote(ctx.env, ctx.agent, path, body.old_text, body.new_text));
       }
     }
     return json({ error: 'Not found' }, 404);

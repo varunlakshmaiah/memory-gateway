@@ -1,11 +1,12 @@
-import type { Env, R2Event } from './types';
+import { ToolError, type Env, type R2Event } from './types';
 import { authenticate, isAdmin } from './auth';
 import { handleMcp } from './mcp';
 import { handleApi } from './api';
 import { audit, indexNote, pruneAudit, reindex, removeNotes } from './indexer';
-import { snapshot } from './snapshot';
+import { listVersions, snapshot } from './snapshot';
 import { fromKey, toKey } from './keys';
-import { isIndexable } from './notes';
+import { isIndexable, normalizePath } from './notes';
+import { restoreNote } from './tools';
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
@@ -27,6 +28,22 @@ async function handleAdmin(req: Request, url: URL, env: Env): Promise<Response> 
     const n = await env.DB.prepare('SELECT COUNT(*) AS notes, MAX(indexed_at) AS last_indexed FROM notes').first();
     const a = await env.DB.prepare('SELECT ts, agent, action, path FROM audit ORDER BY id DESC LIMIT 15').all();
     return json({ index: n, recent_activity: a.results });
+  }
+  // Undo for agent edits: list a note's saved versions, or put one back.
+  if (url.pathname === '/admin/versions' || url.pathname === '/admin/restore') {
+    try {
+      const path = normalizePath(url.searchParams.get('path'));
+      if (req.method === 'GET' && url.pathname === '/admin/versions') {
+        if (!env.BACKUP) throw new ToolError('No BACKUP bucket configured', 400);
+        return json({ path, versions: await listVersions(env.BACKUP, path) });
+      }
+      if (req.method === 'POST' && url.pathname === '/admin/restore') {
+        return json(await restoreNote(env, path, url.searchParams.get('version') ?? ''));
+      }
+    } catch (e) {
+      if (e instanceof ToolError) return json({ error: e.message }, e.status);
+      throw e;
+    }
   }
   return json({ error: 'Not found' }, 404);
 }

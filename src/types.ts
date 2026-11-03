@@ -16,6 +16,8 @@ export interface Env {
   ADMIN_TOKEN?: string;
   /** Key prefix of the vault inside the bucket, for example "MyVault/". Empty for bucket root. */
   VAULT_PREFIX?: string;
+  /** JSON: agent name (or "*") to folder prefixes it may edit with edit_note; "" = whole vault. Unset = no edits. */
+  EDIT_POLICY?: string;
   /** The only folder agents may write to. Default "inbox/agents/". */
   WRITE_PREFIX?: string;
   MAX_NOTE_BYTES?: string;

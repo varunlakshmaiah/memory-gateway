@@ -15,6 +15,10 @@
     "VAULT_PREFIX": "",
     // The only folder agents may write to.
     "WRITE_PREFIX": "inbox/agents/",
+    // Which agents may revise existing notes with edit_note, by folder prefix ("" = whole vault).
+    // JSON as a string, e.g. {"claude":["projects/","notes/"]}. "{}" = nobody (default).
+    // core/ and notes with `locked: true` are never editable; edits need the BACKUP bucket for undo.
+    "EDIT_POLICY": "{}",
     "MAX_NOTE_BYTES": "200000",
     "BACKUP_KEEP_DAYS": "14"
   },

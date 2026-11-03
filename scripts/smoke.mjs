@@ -36,7 +36,7 @@ ok('wrong token is rejected', (await fetch(`${base}/mcp`, { method: 'POST', head
 const init = await rpc('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'smoke', version: '1' } });
 ok('initialize', init.body.result?.serverInfo?.name === 'memory-gateway', JSON.stringify(init.body));
 const tl = await rpc('tools/list');
-ok('four tools listed', tl.body.result?.tools?.length === 4);
+ok('five tools listed', tl.body.result?.tools?.length === 5);
 ok('URL-token auth works', (await rpc('tools/list', undefined, `${base}/t/${token}/mcp`, {})).status === 200);
 
 // --- index the vault
@@ -101,6 +101,15 @@ const found = await tool('search', { query: marker });
 ok('written note is searchable immediately', found.text.includes(name), found.text);
 ok('second write without overwrite refused', (await tool('write_note', { path: name, content: '# again' })).isError);
 ok('overwrite allowed when asked', !(await tool('write_note', { path: name, content: `# Smoke test note\nUnique token ${marker}.`, overwrite: true })).isError);
+
+// --- edit_note: core/ is always refused; other edits need EDIT_POLICY and a BACKUP bucket (EXPECT_EDIT=1)
+ok('edit of core/ refused', (await tool('edit_note', { path: 'core/START-HERE.md', old_text: 'a', new_text: 'b' })).isError);
+const ed = await tool('edit_note', { path: name, old_text: `Unique token ${marker}.`, new_text: `Edited token ${marker}.` });
+if (process.env.EXPECT_EDIT === '1') {
+  ok('edit_note edits an allowed note', !ed.isError && (await tool('read_note', { path: name })).text.includes(`Edited token ${marker}.`), ed.text);
+} else {
+  ok('edit_note refused without policy/backup', ed.isError, ed.text);
+}
 
 // --- REST binding
 const h = { authorization: `Bearer ${token}` };

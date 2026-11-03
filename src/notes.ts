@@ -54,10 +54,45 @@ export function normalizePath(input: unknown): string {
   const p = input.trim().replace(/^\/+/, '');
   if (!p || p.length > 300) throw new ToolError('Invalid path');
   if (/[\\\u0000-\u001f]/.test(p)) throw new ToolError('Invalid characters in path');
-  if (p.split('/').some((s) => s === '' || s === '.' || s === '..')) {
+  // Also blocks hidden folders such as .obsidian (plugin settings can hold credentials).
+  if (p.split('/').some((s) => s === '' || s.startsWith('.'))) {
     throw new ToolError('Invalid path segments');
   }
   return p;
+}
+
+/** Folders no agent may edit, whatever EDIT_POLICY says. */
+const NEVER_EDIT = ['core/'];
+
+/**
+ * Whether `agent` may edit an existing note at `path`. EDIT_POLICY is JSON mapping agent names
+ * (or "*") to folder prefixes; "" means the whole vault. Missing or invalid policy means no edits.
+ */
+export function canEdit(policy: string | undefined, agent: string, path: string): boolean {
+  if (NEVER_EDIT.some((p) => path.startsWith(p))) return false;
+  let map: Record<string, unknown>;
+  try {
+    map = JSON.parse(policy ?? '{}');
+  } catch {
+    return false;
+  }
+  const prefixes = map[agent] ?? map['*'];
+  return Array.isArray(prefixes) && prefixes.some((p) => typeof p === 'string' && path.startsWith(p));
+}
+
+/** True when the note's frontmatter has `locked: true`. */
+export function isLocked(text: string): boolean {
+  const m = text.match(FM_RE);
+  return !!m && /^(true|yes)$/i.test(parseFrontmatter(m[1]).locked ?? '');
+}
+
+/** Sets `updated` and `updated_by` on an edited note, keeping all other frontmatter as it was. */
+export function stampEdit(text: string, agent: string, today: string): string {
+  const m = text.match(FM_RE);
+  const stamp = [`updated: ${today}`, `updated_by: ${agentStamp(agent)}`];
+  if (!m) return `---\n${stamp.join('\n')}\n---\n${text}`;
+  const kept = m[1].split(/\r?\n/).filter((l) => !/^(updated|updated_by):/.test(l));
+  return `---\n${[...kept, ...stamp].join('\n')}\n---\n${text.slice(m[0].length)}`;
 }
 
 export function requireMarkdown(path: string): string {

@@ -5,7 +5,7 @@ Give Claude, Cursor, Copilot, Gemini CLI and any other MCP-capable AI agent **lo
 - **Truth:** plain `.md` files in an R2 bucket. Obsidian syncs to it with the Remotely Save plugin.
 - **Index:** a disposable D1 (SQLite) full-text index plus a Vectorize index for search by meaning (Workers AI `bge-m3` embeddings). Delete either any time; `/admin/reindex` rebuilds them from the files.
 - **Access:** MCP over HTTP (Claude app, Claude Code, Hermes, anything MCP) and a plain REST API (anything else).
-- **Tools:** `read_note`, `search`, `list`, `write_note`. Writes are limited to `inbox/agents/`, always saved as `status: draft` and stamped with the agent name. Agents never overwrite your notes.
+- **Tools:** `read_note`, `search`, `list`, `write_note`, `edit_note`. New notes go only to `inbox/agents/`, saved as `status: draft` and stamped with the agent name. Revising your existing notes is off by default; you can allow it per agent and folder, and every edit is versioned so you can undo it.
 
 ```
 Obsidian devices --Remotely Save--> R2 bucket (markdown) --event--> Queue --> Worker --> D1 full-text index
@@ -102,7 +102,7 @@ cp .dev.vars.example .dev.vars
 npm run db:init:local
 npm run seed:local          # loads examples/sample-vault into a simulated R2 bucket
 npx wrangler dev            # in one terminal
-npm run smoke               # in another: 38 checks across MCP, REST, auth, search and write guardrails
+npm run smoke               # in another: 40 checks across MCP, REST, auth, search, write and edit guardrails
 npm test                    # unit tests
 ```
 
@@ -114,7 +114,23 @@ Against your deployed worker and real vault, skip the sample-content checks:
 VAULT=real node scripts/smoke.mjs https://<worker> <agent-token> <admin-token>
 ```
 
-It writes one note, `inbox/agents/smoke-test.md`, and overwrites it on every run.
+It writes one note, `inbox/agents/smoke-test.md`, and overwrites it on every run. If your deployment allows that agent to edit and has a `BACKUP` bucket, add `EXPECT_EDIT=1` to also check a real edit; otherwise it checks that edits are refused.
+
+## Letting agents revise your notes (optional)
+
+By default agents only add drafts to `inbox/agents/`. To let an agent revise existing notes when you ask ("update the deadline in my Jarvis note"), set `EDIT_POLICY` in `wrangler.jsonc` and configure the `BACKUP` bucket:
+
+```jsonc
+"EDIT_POLICY": "{\"claude\":[\"projects/\",\"notes/\"],\"claude-code\":[\"\"]}"   // "" = whole vault
+```
+
+- The `edit_note` tool replaces one exact passage (`old_text` must occur exactly once), so an agent cannot silently overwrite text you changed after it read the note.
+- `core/` can never be edited, and neither can any note with `locked: true` in its frontmatter.
+- Edits stamp `updated` and `updated_by: <agent>`; the note keeps its status. Nothing is ever deleted or moved.
+- Before each edit the previous version is saved to the `BACKUP` bucket under `versions/<path>/`. Without a `BACKUP` bucket, editing is refused.
+- Undo with the admin token: `GET /admin/versions?path=<note>` lists versions, `POST /admin/restore?path=<note>&version=<id>` puts one back (the current text is saved first).
+- REST equivalent: `PATCH /api/notes/<path>` with `{"old_text": "...", "new_text": "..."}`.
+- Sync Obsidian before asking for a revision: if you edit the same note at the same time, Remotely Save keeps the newer copy. The saved versions mean nothing is lost.
 
 ## Vault conventions that make agents reliable
 
@@ -126,7 +142,7 @@ It writes one note, `inbox/agents/smoke-test.md`, and overwrites it on every run
 - Don't start folder names with `_`: Remotely Save skips them by default, so they never reach R2.
 - No secrets in the vault. Agents can read everything in it.
 
-You review `inbox/agents/` now and then, move good drafts into the right folder, and change `status` to `current`.
+Mark any note agents must never change with `locked: true`. You review `inbox/agents/` now and then, move good drafts into the right folder, and change `status` to `current`.
 
 ## Security notes
 
