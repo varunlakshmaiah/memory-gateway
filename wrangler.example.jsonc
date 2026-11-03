@@ -1,0 +1,50 @@
+// Copy to wrangler.jsonc (git-ignored) and fill in your values: cp wrangler.example.jsonc wrangler.jsonc
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "memory-gateway",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-09-01",
+  "observability": { "enabled": true },
+  // Public URL stays on workers.dev; preview URLs per version are off so old versions are not reachable.
+  "workers_dev": true,
+  "preview_urls": false,
+
+  "vars": {
+    // Set to "<vaultName>/" if Remotely Save stores your notes under a vault-name folder.
+    // Check your bucket in the Cloudflare dashboard. Leave empty if notes sit at the bucket root.
+    "VAULT_PREFIX": "",
+    // The only folder agents may write to.
+    "WRITE_PREFIX": "inbox/agents/",
+    "MAX_NOTE_BYTES": "200000",
+    "BACKUP_KEEP_DAYS": "14"
+  },
+
+  "r2_buckets": [
+    // The bucket Remotely Save syncs your vault to.
+    { "binding": "VAULT", "bucket_name": "obsidian-vault" }
+    // Optional daily snapshots: create a SECOND bucket (never the synced one) and uncomment:
+    // , { "binding": "BACKUP", "bucket_name": "obsidian-vault-backup" }
+  ],
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "memory-gateway-index",
+      // From: npx wrangler d1 create memory-gateway-index
+      "database_id": "REPLACE_WITH_D1_DATABASE_ID"
+    }
+  ],
+
+  // Search by meaning. Create once: npx wrangler vectorize create memory-gateway-notes --dimensions=1024 --metric=cosine
+  // Remove both lines for keyword-only search.
+  "ai": { "binding": "AI" },
+  "vectorize": [{ "binding": "VEC", "index_name": "memory-gateway-notes" }],
+
+  "queues": {
+    "consumers": [
+      { "queue": "vault-events", "max_batch_size": 10, "max_batch_timeout": 5, "max_retries": 5 }
+    ]
+  },
+
+  "triggers": { "crons": ["17 3 * * *"] }
+}

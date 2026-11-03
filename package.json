@@ -1,0 +1,27 @@
+{
+  "name": "memory-gateway",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Markdown vault memory gateway: R2 truth, D1 full-text + Vectorize semantic index, MCP + HTTP for any agent.",
+  "license": "MIT",
+  "author": "Varun",
+  "keywords": ["mcp", "obsidian", "cloudflare-workers", "r2", "d1", "vectorize", "ai-agents", "memory"],
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "db:init": "wrangler d1 execute memory-gateway-index --remote --file=schema.sql",
+    "db:init:local": "wrangler d1 execute memory-gateway-index --local --file=schema.sql",
+    "seed:local": "bash scripts/seed-local.sh examples/sample-vault",
+    "smoke": "node scripts/smoke.mjs"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261102.1",
+    "typescript": "^5.6.0",
+    "vitest": "^3.0.0",
+    "wrangler": "^4.0.0"
+  }
+}
