@@ -22,6 +22,8 @@ export interface Env {
   WRITE_PREFIX?: string;
   /** Optional KV namespace for OAuth grants and tokens. Bound = OAuth sign-in on /mcp is on. */
   OAUTH_KV?: KVNamespace;
+  /** Optional rate limiter for sign-in, admin and failed-token attempts, keyed by IP. */
+  AUTH_LIMIT?: RateLimit;
   MAX_NOTE_BYTES?: string;
   BACKUP_KEEP_DAYS?: string;
 }

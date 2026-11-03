@@ -169,5 +169,11 @@ else {
   ok('forged OAuth token is refused', forged.status === 401);
 }
 
+// --- rate limit (last: it locks this IP out of failed attempts for about a minute)
+const codes = [];
+for (let i = 0; i < 25; i++) codes.push((await fetch(`${base}/api/list`, { headers: { authorization: 'Bearer wrong-token-000000000000' } })).status);
+if (codes.includes(429)) ok('failed tokens are rate limited', codes.slice(0, 5).every((c) => c === 401));
+else console.log(`      no 429 after 25 failed tokens: rate limit off (statuses ${[...new Set(codes)]})`);
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

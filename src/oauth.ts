@@ -3,9 +3,9 @@
  * There is no user database: the consent page asks for one of your agent tokens, and the grant
  * acts as that agent. Static tokens keep working on /mcp, /api and /t/<token>/.
  */
-import { AuthorizationError, CimdFetchError, OAuthProvider, type OAuthHelpers } from '@cloudflare/workers-oauth-provider';
+import { AuthorizationError, CimdFetchError, ExternalTokenError, OAuthProvider, type OAuthHelpers } from '@cloudflare/workers-oauth-provider';
 import type { Env } from './types';
-import { resolveAgent } from './auth';
+import { resolveAgent, withinLimit } from './auth';
 import { audit } from './indexer';
 
 type Handler = { fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> };
@@ -25,9 +25,13 @@ export function oauthProvider(origin: string, app: Handler, mcp: Handler): OAuth
       clientRegistrationEndpoint: '/register',
       resourceMetadata: { resource: `${origin}/mcp`, resource_name: 'memory-gateway' },
       // Static agent tokens sent as a Bearer header on /mcp.
-      resolveExternalToken: async ({ token, env }) => {
+      resolveExternalToken: async ({ token, env, request }) => {
         const agent = await resolveAgent(env, token);
-        return agent ? { props: { agent }, audience: `${origin}/mcp` } : null;
+        if (agent) return { props: { agent }, audience: `${origin}/mcp` };
+        if (!(await withinLimit(env, request))) {
+          throw new ExternalTokenError('invalid_token', { description: 'Too many failed attempts', statusCode: 429, headers: { 'retry-after': '60' } });
+        }
+        return null;
       },
     });
     providers.set(origin, p);

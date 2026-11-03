@@ -42,6 +42,22 @@ export function agentExists(env: Pick<Env, 'AGENT_TOKENS'>, agent: string): bool
   }
 }
 
+/**
+ * Counts one attempt for the caller's IP against AUTH_LIMIT; false once over budget.
+ * Called for every sign-in/admin attempt and for every failed token, never for successful agent calls.
+ */
+export async function withinLimit(env: Pick<Env, 'AUTH_LIMIT'>, req: Request): Promise<boolean> {
+  if (!env.AUTH_LIMIT) return true;
+  const ip = req.headers.get('cf-connecting-ip') ?? 'unknown';
+  return (await env.AUTH_LIMIT.limit({ key: ip })).success;
+}
+
+export const tooMany = () =>
+  new Response(JSON.stringify({ error: 'Too many attempts, try again in a minute' }), {
+    status: 429,
+    headers: { 'content-type': 'application/json', 'retry-after': '60' },
+  });
+
 export interface Auth {
   agent: string;
   /** Request path with any /t/<token> prefix removed. */

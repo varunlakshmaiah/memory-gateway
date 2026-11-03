@@ -45,6 +45,9 @@
   // OAuth sign-in for MCP clients (Claude app, ChatGPT). Remove to allow static tokens only.
   "kv_namespaces": [{ "binding": "OAUTH_KV" }],
 
+  // Caps sign-in, admin and failed-token attempts per IP. Free; remove to disable.
+  "ratelimits": [{ "name": "AUTH_LIMIT", "namespace_id": "1001", "simple": { "limit": 20, "period": 60 } }],
+
   "queues": {
     "consumers": [
       { "queue": "vault-events", "max_batch_size": 10, "max_batch_timeout": 5, "max_retries": 5 }

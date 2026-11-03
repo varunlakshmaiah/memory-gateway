@@ -1,5 +1,5 @@
 import { ToolError, type Env, type R2Event } from './types';
-import { agentExists, authenticate, isAdmin } from './auth';
+import { agentExists, authenticate, isAdmin, tooMany, withinLimit } from './auth';
 import { handleMcp } from './mcp';
 import { handleApi } from './api';
 import { audit, indexNote, pruneAudit, reindex, removeNotes } from './indexer';
@@ -94,6 +94,7 @@ const app = {
     if (url.pathname === '/authorize' && env.OAUTH_PROVIDER) return authorize(req, env as Env & { OAUTH_PROVIDER: OAuthHelpers });
 
     const auth = await authenticate(req, url, env);
+    if (!auth && !(await withinLimit(env, req))) return tooMany();
     if (!auth) return new Response('Unauthorized', { status: 401, headers: { 'WWW-Authenticate': 'Bearer' } });
     const ctx = { env, agent: auth.agent };
 
@@ -115,7 +116,11 @@ const mcp = {
 };
 
 export default {
-  fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    const path = new URL(req.url).pathname;
+    // Every attempt at these counts, so token guessing and client-registration spam are capped per IP.
+    const guarded = path.startsWith('/admin/') || path === '/register' || path === '/token' || (path === '/authorize' && req.method === 'POST');
+    if (guarded && !(await withinLimit(env, req))) return tooMany();
     // OAuth is on when the OAUTH_KV namespace is bound; without it, static tokens only.
     if (!env.OAUTH_KV) return app.fetch(req, env);
     return oauthProvider(new URL(req.url).origin, app, mcp).fetch(req, env, ctx);

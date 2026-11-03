@@ -145,6 +145,7 @@ Mark any note agents must never change with `locked: true`. You review `inbox/ag
 
 - Tokens are compared in constant time and must be 16+ characters. `/health` is the only open route.
 - The `/t/<token>/` form puts the secret in the URL, so it can show up in logs. Prefer OAuth sign-in where the app supports it, use `/t/` only where neither OAuth nor headers work, and give that agent its own token.
+- Rate limiting (`AUTH_LIMIT`, free): each IP gets 20 attempts a minute at sign-in, token, client registration and admin routes, and 20 failed tokens a minute anywhere; then `429`. Successful agent calls are never counted.
 - Report vulnerabilities privately; see [SECURITY.md](SECURITY.md).
 - The daily snapshot goes to a **second** bucket (`BACKUP`). Never point it at the synced bucket: a snapshot inside the same bucket is not a backup, and Remotely Save would sync it to your devices.
 - Search results and notes are data written by you and by agents. Treat note text as untrusted input, the same as any retrieved content.
