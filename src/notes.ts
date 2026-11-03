@@ -145,18 +145,20 @@ export function deriveDescription(body: string): string {
  * `written_by: <agent>` (an agent cannot claim "current" or spoof another agent),
  * and fills in type, description and updated when missing.
  */
-export function stampNote(content: string, agent: string, today: string): string {
+export function stampNote(content: string, agent: string, today: string, draft = true): string {
   const text = content.replace(/^﻿/, '');
   const m = text.match(FM_RE);
   const body = m ? text.slice(m[0].length) : text;
   const existing = m ? m[1].split(/\r?\n/) : [];
   const fm = parseFrontmatter(m ? m[1] : '');
+  // Outside the inbox (an agent allowed by EDIT_POLICY) the note keeps its own status, default current.
+  const status = draft ? 'draft' : fm.status && /^(current|draft|outdated)$/.test(fm.status) ? fm.status : 'current';
   const kept = existing.filter((l) => !/^(status|written_by):/.test(l));
   const add: string[] = [];
   if (!fm.type) add.push('type: note');
   if (!fm.description) add.push(`description: "${deriveDescription(body).replace(/"/g, "'")}"`);
   if (!fm.updated) add.push(`updated: ${today}`);
-  add.push('status: draft', `written_by: ${agentStamp(agent)}`);
+  add.push(`status: ${status}`, `written_by: ${agentStamp(agent)}`);
   return `---\n${[...kept, ...add].join('\n')}\n---\n${body}`;
 }
 

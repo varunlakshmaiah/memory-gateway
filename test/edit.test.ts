@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { canEdit, isLocked, normalizePath, stampEdit } from '../src/notes';
-import { editNote } from '../src/tools';
+import { editNote, writeNote } from '../src/tools';
 import type { Env } from '../src/types';
 
 const POLICY = JSON.stringify({ claude: [''], hermes: ['notes/'] });
@@ -94,5 +94,32 @@ describe('editNote', () => {
     const race = fakeEnv({ 'projects/p.md': NOTE }, { raceOnPut: true });
     await expect(editNote(race.env, 'claude', 'projects/p.md', 'March', 'x')).rejects.toMatchObject({ status: 409 });
     expect(race.notes['projects/p.md']).toBe(NOTE);
+  });
+});
+
+describe('writeNote outside the inbox', () => {
+  it('creates a note in an allowed folder, keeping its status and stamping the agent', async () => {
+    const f = fakeEnv({});
+    const r = await writeNote(f.env, 'claude', 'journal/2026-11-03.md', '# 2026-11-03\nRode to Nandi Hills.');
+    expect(r.created).toBe(true);
+    const out = f.notes['journal/2026-11-03.md'];
+    expect(out).toContain('status: current');
+    expect(out).toContain('written_by: claude');
+    expect(out).toContain('Rode to Nandi Hills.');
+  });
+  it('refuses folders the agent may not edit, and core/', async () => {
+    const f = fakeEnv({});
+    await expect(writeNote(f.env, 'hermes', 'journal/x.md', '# x')).rejects.toMatchObject({ status: 403 });
+    await expect(writeNote(f.env, 'claude', 'core/new.md', '# x')).rejects.toMatchObject({ status: 403 });
+  });
+  it('never overwrites an existing note outside the inbox, even with overwrite', async () => {
+    const f = fakeEnv({ 'journal/2026-11-03.md': '---\nwritten_by: claude\n---\n# old' });
+    await expect(writeNote(f.env, 'claude', 'journal/2026-11-03.md', '# new', true)).rejects.toMatchObject({ status: 409 });
+    expect(f.notes['journal/2026-11-03.md']).toContain('# old');
+  });
+  it('still saves inbox notes as drafts', async () => {
+    const f = fakeEnv({});
+    await writeNote(f.env, 'claude', 'inbox/agents/x.md', '---\nstatus: current\n---\n# x');
+    expect(f.notes['inbox/agents/x.md']).toContain('status: draft');
   });
 });

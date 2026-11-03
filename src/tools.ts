@@ -54,9 +54,11 @@ export async function writeNote(
 ): Promise<{ path: string; created: boolean }> {
   const path = requireMarkdown(normalizePath(rawPath));
   const allowed = writePrefix(env);
-  if (!path.startsWith(allowed)) {
+  const inInbox = path.startsWith(allowed);
+  // Outside the inbox, an agent may create notes only where EDIT_POLICY lets it edit.
+  if (!inInbox && !canEdit(env.EDIT_POLICY, agent, path)) {
     throw new ToolError(
-      `Agents may only write under ${allowed}. Put the note at ${allowed}${path.split('/').pop()} and the owner will promote it.`,
+      `You may not create notes in ${path.split('/').slice(0, -1).join('/') || 'the vault root'}. Put the note at ${allowed}${path.split('/').pop()} and the owner will promote it.`,
       403,
     );
   }
@@ -66,13 +68,15 @@ export async function writeNote(
 
   const key = toKey(env, path);
   const existing = await env.VAULT.get(key);
+  // Outside the inbox, existing notes change only through edit_note, which saves the previous version.
+  if (existing && !inInbox) throw new ToolError(`${path} already exists. Use edit_note to change it.`, 409);
   if (existing && !overwrite) {
     throw new ToolError(`${path} already exists. Choose a new name, or pass overwrite: true to replace your own note.`, 409);
   }
   if (existing && writtenBy(await existing.text()) !== agentStamp(agent)) {
     throw new ToolError(`${path} was not written by you, so it cannot be overwritten. Choose a new name.`, 403);
   }
-  const final = stampNote(content, agent, today());
+  const final = stampNote(content, agent, today(), inInbox);
   const put = await env.VAULT.put(key, final, { httpMetadata: { contentType: 'text/markdown; charset=utf-8' } });
   // Index straight away; the R2 event arrives later and is a harmless no-op repeat.
   await indexNote(env, path, final, put.etag, put.size);
@@ -224,11 +228,11 @@ export const TOOLS = [
   {
     name: 'write_note',
     description:
-      'Save a new note. Agents can only create notes inside the inbox folder (inbox/agents/); the owner reviews and promotes notes later. Notes are saved as drafts. To change an existing note, use edit_note when the owner has allowed it; otherwise write a proposal here and set `supersedes:` to the old path. Never include passwords, keys or tokens.',
+      'Create a new note. Notes under inbox/agents/ are saved as drafts for the owner to review. If the owner allows you to edit a folder (for example journal/ or projects/), you may also create notes directly there when the user asks; they keep their status (default current). core/ is never writable. Existing notes outside the inbox change only through edit_note. If a folder is not allowed, the error says so: then save the note in inbox/agents/. Never include passwords, keys or tokens.',
     inputSchema: {
       type: 'object',
       properties: {
-        path: { type: 'string', description: 'Path under inbox/agents/, for example "inbox/agents/2026-11-03-dns-plan.md"' },
+        path: { type: 'string', description: 'For example "inbox/agents/2026-11-03-dns-plan.md", or "journal/2026-11-03.md" where the owner allows it' },
         content: { type: 'string', description: 'Markdown. Start with a heading; add a one-line `description:` in frontmatter if you can.' },
         overwrite: { type: 'boolean', description: 'Replace your own earlier note at this path. Default false.' },
       },
@@ -265,7 +269,8 @@ export async function callTool(env: Env, agent: string, name: string, args: Reco
       return formatList(await listNotes(env, args.folder));
     case 'write_note': {
       const r = await writeNote(env, agent, args.path, args.content, args.overwrite === true);
-      return `${r.created ? 'Saved' : 'Replaced'} ${r.path} as a draft. It will appear in Obsidian on the owner's devices at their next sync.`;
+      const kind = r.path.startsWith(writePrefix(env)) ? ' as a draft' : '';
+      return `${r.created ? 'Saved' : 'Replaced'} ${r.path}${kind}. It will appear in Obsidian on the owner's devices at their next sync.`;
     }
     case 'edit_note': {
       const r = await editNote(env, agent, args.path, args.old_text, args.new_text);

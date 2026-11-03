@@ -5,7 +5,7 @@ Give Claude, Cursor, Copilot, Gemini CLI and any other MCP-capable AI agent **lo
 - **Truth:** plain `.md` files in an R2 bucket. Obsidian syncs to it with the Remotely Save plugin.
 - **Index:** a disposable D1 (SQLite) full-text index plus a Vectorize index for search by meaning (Workers AI `bge-m3` embeddings). Delete either any time; `/admin/reindex` rebuilds them from the files.
 - **Access:** MCP over HTTP (Claude app, Claude Code, Hermes, anything MCP) and a plain REST API (anything else).
-- **Tools:** `read_note`, `search`, `list`, `write_note`, `edit_note`. New notes go only to `inbox/agents/`, saved as `status: draft` and stamped with the agent name. Revising your existing notes is off by default; you can allow it per agent and folder, and every edit is versioned so you can undo it.
+- **Tools:** `read_note`, `search`, `list`, `write_note`, `edit_note`. By default new notes go only to `inbox/agents/`, saved as `status: draft` and stamped with the agent name. You can allow an agent to revise and add notes in chosen folders; every edit is versioned so you can undo it.
 
 ```
 Obsidian devices --Remotely Save--> R2 bucket (markdown) --event--> Queue --> Worker --> D1 full-text index
@@ -116,9 +116,9 @@ VAULT=real node scripts/smoke.mjs https://<worker> <agent-token> <admin-token>
 
 It writes one note, `inbox/agents/smoke-test.md`, and overwrites it on every run. If your deployment allows that agent to edit and has a `BACKUP` bucket, add `EXPECT_EDIT=1` to also check a real edit; otherwise it checks that edits are refused.
 
-## Letting agents revise your notes (optional)
+## Letting agents revise and add notes (optional)
 
-By default agents only add drafts to `inbox/agents/`. To let an agent revise existing notes when you ask ("update the deadline in my Jarvis note"), set `EDIT_POLICY` in `wrangler.jsonc` and configure the `BACKUP` bucket:
+By default agents only add drafts to `inbox/agents/`. To let an agent revise existing notes when you ask ("update the deadline in my Jarvis note") and create new notes in those folders ("add today's journal entry"), set `EDIT_POLICY` in `wrangler.jsonc` and configure the `BACKUP` bucket:
 
 ```jsonc
 "EDIT_POLICY": "{\"claude\":[\"projects/\",\"notes/\"],\"claude-code\":[\"\"]}"   // "" = whole vault
@@ -127,6 +127,7 @@ By default agents only add drafts to `inbox/agents/`. To let an agent revise exi
 - The `edit_note` tool replaces one exact passage (`old_text` must occur exactly once), so an agent cannot silently overwrite text you changed after it read the note.
 - `core/` can never be edited, and neither can any note with `locked: true` in its frontmatter.
 - Edits stamp `updated` and `updated_by: <agent>`; the note keeps its status. Nothing is ever deleted or moved.
+- In allowed folders `write_note` can also create new notes. They keep their own status (default `current`, not draft) and are stamped `written_by: <agent>`. It never replaces an existing note there; that is what `edit_note` (versioned) is for.
 - Before each edit the previous version is saved to the `BACKUP` bucket under `versions/<path>/`. Without a `BACKUP` bucket, editing is refused.
 - Undo with the admin token: `GET /admin/versions?path=<note>` lists versions, `POST /admin/restore?path=<note>&version=<id>` puts one back (the current text is saved first).
 - REST equivalent: `PATCH /api/notes/<path>` with `{"old_text": "...", "new_text": "..."}`.

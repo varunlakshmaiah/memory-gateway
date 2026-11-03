@@ -12,7 +12,7 @@ const INSTRUCTIONS =
   "This server is the user's personal memory: a vault of markdown notes. " +
   'At the start of a session call read_note with path "core/START-HERE.md" to learn who the user is and how they work. ' +
   'Use search before asking the user for facts. ' +
-  'Write new notes only with write_note (inbox/agents/). ' +
+  'Create notes with write_note: in inbox/agents/ as drafts, or directly in a folder the owner allows (for example journal/) when the user asks. ' +
   'When the user asks you to revise an existing note, use edit_note if the owner allows it, otherwise write a proposal to the inbox. ' +
   'Never include secrets.';
 
