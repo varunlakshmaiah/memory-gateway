@@ -73,21 +73,21 @@ The gateway is a remote MCP server over **Streamable HTTP** (stateless). Any cli
 - **Header (preferred):** URL `https://<worker>/mcp` with header `Authorization: Bearer <token>`.
 - **Token in the URL** (for clients that cannot send headers): `https://<worker>/t/<token>/mcp`. The token can then show up in logs, so give that client its own token.
 
-| Client | How to connect | Tested |
-|---|---|---|
-| **Claude Code** | `claude mcp add --transport http memory https://<worker>/mcp --header "Authorization: Bearer <token>"` | Yes |
-| **Claude app / claude.ai / Claude Desktop** | Settings → Connectors → Add custom connector, URL `https://<worker>/t/<token>/mcp` | Yes |
-| **Cursor** | Add a remote MCP server in `mcp.json`: the `/mcp` URL plus the `Authorization` header | Protocol-compatible |
-| **VS Code (GitHub Copilot agent mode)** | Add an HTTP MCP server in `mcp.json` with the URL and header | Protocol-compatible |
-| **Windsurf, Cline, Continue, Zed, Goose** | Add a remote (Streamable HTTP) MCP server with the URL and header | Protocol-compatible |
-| **Gemini CLI, OpenAI Codex CLI** | Add an HTTP MCP server in their settings with the URL and header | Protocol-compatible |
-| **ChatGPT (developer mode connectors)** | Add a remote MCP connector with the token-in-URL form | Protocol-compatible |
-| **LM Studio** (local models) | Add a remote server to its `mcp.json` with the URL and header | Protocol-compatible |
-| **Hermes and other agent frameworks** (OpenAI Agents SDK, Anthropic API MCP connector, LangChain/LlamaIndex MCP adapters) | Point their MCP client at the URL with the header | Protocol-compatible |
-| **n8n** | MCP Client Tool node with header auth, or the REST API below | Protocol-compatible |
-| **Anything else** (scripts, curl, shortcuts) | REST: `GET /api/search?q=...&limit=5&folder=infra`, `GET /api/list?folder=...`, `GET /api/notes/<path>`, `PUT /api/notes/inbox/agents/<name>.md` (add `?overwrite=true` to replace your own earlier draft) | REST tested |
+| Client | How to connect |
+|---|---|
+| **Claude Code** | `claude mcp add --transport http memory https://<worker>/mcp --header "Authorization: Bearer <token>"` |
+| **Claude app / claude.ai / Claude Desktop** | Settings → Connectors → Add custom connector, URL `https://<worker>/t/<token>/mcp` |
+| **Cursor** | Add a remote MCP server in `mcp.json`: the `/mcp` URL plus the `Authorization` header |
+| **VS Code (GitHub Copilot agent mode)** | Add an HTTP MCP server in `mcp.json` with the URL and header |
+| **Windsurf, Cline, Continue, Zed, Goose** | Add a remote (Streamable HTTP) MCP server with the URL and header |
+| **Gemini CLI, OpenAI Codex CLI** | Add an HTTP MCP server in their settings with the URL and header |
+| **ChatGPT (developer mode connectors)** | Add a remote MCP connector with the token-in-URL form |
+| **LM Studio** (local models) | Add a remote server to its `mcp.json` with the URL and header |
+| **Hermes and other agent frameworks** (OpenAI Agents SDK, Anthropic API MCP connector, LangChain/LlamaIndex MCP adapters) | Point their MCP client at the URL with the header |
+| **n8n** | MCP Client Tool node with header auth, or the REST API below |
+| **Anything else** (scripts, curl, shortcuts) | REST: `GET /api/search?q=...&limit=5&folder=infra`, `GET /api/list?folder=...`, `GET /api/notes/<path>`, `PUT /api/notes/inbox/agents/<name>.md` (add `?overwrite=true` to replace your own earlier draft) |
 
-"Protocol-compatible" means the client supports remote MCP servers over HTTP with a header or URL, which is all the gateway needs; it has not been tested end to end yet. Menu names and config keys change between client versions, so check the client's MCP docs. Reports of working setups are welcome as issues or pull requests.
+Menu names and config keys vary between client versions; see the client's MCP docs.
 
 Use one token per agent so the audit log and the `written_by` stamp tell you who wrote what. Rotate by editing `AGENT_TOKENS` and re-running `wrangler secret put`.
 
