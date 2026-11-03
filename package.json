@@ -1,6 +1,6 @@
 {
   "name": "memory-gateway",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "description": "Markdown vault memory gateway: R2 truth, D1 full-text + Vectorize semantic index, MCP + HTTP for any agent.",

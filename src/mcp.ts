@@ -65,7 +65,7 @@ export async function handleMessage(ctx: Ctx, msg: RpcMessage): Promise<unknown 
         result: {
           protocolVersion: SUPPORTED.includes(asked) ? asked : LATEST,
           capabilities: { tools: { listChanged: false } },
-          serverInfo: { name: 'memory-gateway', version: '0.1.0' },
+          serverInfo: { name: 'memory-gateway', version: '0.2.0' },
           instructions: INSTRUCTIONS,
         },
       };
