@@ -80,6 +80,20 @@ if (!db.database_id) {
   save();
 }
 console.log(`✓ database ${db.database_name}`);
+const kv = cfg.kv_namespaces?.find((k) => k.binding === 'OAUTH_KV');
+if (kv && !kv.id) {
+  const title = `${worker}-oauth`;
+  const list = wrangler(['kv', 'namespace', 'list']);
+  let id = list.status === 0 ? JSON.parse(list.stdout).find((n) => n.title === title)?.id : undefined;
+  if (!id) {
+    const r = wrangler(['kv', 'namespace', 'create', title]);
+    id = out(r).match(/"id": "([0-9a-f]{32})"/)?.[1];
+    if (r.status !== 0 || !id) fail(`kv namespace create: ${out(r).trim()}`);
+  }
+  text = text.replace('{ "binding": "OAUTH_KV" }', `{ "binding": "OAUTH_KV", "id": "${id}" }`);
+  save();
+}
+if (kv) console.log('✓ OAuth sign-in storage');
 
 // 4. Deploy
 console.log('\nDeploying…');

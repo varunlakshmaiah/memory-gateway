@@ -120,5 +120,54 @@ ok('REST read', rr.status === 200 && (await rr.text()).length > 0);
 const rp = await fetch(`${base}/api/notes/core/x.md`, { method: 'PUT', headers: h, body: '# x' });
 ok('REST write outside inbox is 403', rp.status === 403);
 
+// --- OAuth sign-in (only when the deployment has OAUTH_KV bound)
+const challenge = (await fetch(`${base}/mcp`, { method: 'POST', body: '{}' })).headers.get('www-authenticate') ?? '';
+const prmUrl = challenge.match(/resource_metadata="([^"]+)"/)?.[1];
+// The library refuses http resource indicators, so the flow only completes over https (deployed).
+if (!prmUrl || !base.startsWith('https:')) console.log('      OAuth off or not https: OAuth checks skipped');
+else {
+  const { createHash, randomBytes } = await import('node:crypto');
+  const b64 = (b) => b.toString('base64url');
+  const prm = await (await fetch(prmUrl)).json();
+  const as = await (await fetch(`${prm.authorization_servers[0]}/.well-known/oauth-authorization-server`)).json();
+  const redirect = 'https://example.com/callback';
+  const client = await (await fetch(as.registration_endpoint, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ client_name: 'smoke test', redirect_uris: [redirect], token_endpoint_auth_method: 'none' }),
+  })).json();
+  ok('OAuth client registration', !!client.client_id, JSON.stringify(client).slice(0, 200));
+  const verifier = b64(randomBytes(32));
+  const q = new URLSearchParams({
+    response_type: 'code', client_id: client.client_id, redirect_uri: redirect, state: 'smoke-state',
+    code_challenge: b64(createHash('sha256').update(verifier).digest()), code_challenge_method: 'S256', resource: prm.resource,
+  });
+  const authUrl = `${as.authorization_endpoint}?${q}`;
+  const consent = await fetch(authUrl);
+  const html = await consent.text();
+  const handle = html.match(/name="handle" value="([^"]+)"/)?.[1];
+  const cookie = consent.headers.getSetCookie().map((c) => c.split(';')[0]).join('; ');
+  ok('consent page shows', consent.status === 200 && !!handle && html.includes('smoke test'), html.slice(0, 200));
+  const post = (tok) => fetch(authUrl, {
+    method: 'POST', redirect: 'manual',
+    headers: { cookie, 'content-type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ handle, token: tok, decision: 'approve' }),
+  });
+  ok('consent with a wrong token is refused', (await post('not-a-real-token-0000000000')).status === 401);
+  const approved = await post(token);
+  const loc = new URL(approved.headers.get('location') ?? 'x:/', base);
+  ok('consent redirects back with a code', approved.status === 302 && loc.searchParams.get('state') === 'smoke-state' && !!loc.searchParams.get('code'), loc.href.slice(0, 120));
+  const tok = await (await fetch(as.token_endpoint, {
+    method: 'POST',
+    headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ grant_type: 'authorization_code', code: loc.searchParams.get('code') ?? '', redirect_uri: redirect, client_id: client.client_id, code_verifier: verifier, resource: prm.resource }),
+  })).json();
+  ok('code exchanged for tokens', !!tok.access_token && !!tok.refresh_token, JSON.stringify(tok).slice(0, 200));
+  const viaOAuth = await rpc('tools/list', {}, `${base}/mcp`, { authorization: `Bearer ${tok.access_token}` });
+  ok('MCP works with the OAuth token', viaOAuth.body?.result?.tools?.length === 5, JSON.stringify(viaOAuth).slice(0, 200));
+  const forged = await fetch(`${base}/mcp`, { method: 'POST', headers: { authorization: 'Bearer forged:token:value' }, body: '{}' });
+  ok('forged OAuth token is refused', forged.status === 401);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

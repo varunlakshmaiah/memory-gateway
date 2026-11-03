@@ -32,6 +32,16 @@ export async function resolveAgent(env: Pick<Env, 'AGENT_TOKENS'>, presented: st
   return found;
 }
 
+/** Whether `agent` is still listed in AGENT_TOKENS (OAuth grants outlive token changes otherwise). */
+export function agentExists(env: Pick<Env, 'AGENT_TOKENS'>, agent: string): boolean {
+  try {
+    const tok = JSON.parse(env.AGENT_TOKENS ?? '{}')[agent];
+    return typeof tok === 'string' && tok.length >= 16;
+  } catch {
+    return false;
+  }
+}
+
 export interface Auth {
   agent: string;
   /** Request path with any /t/<token> prefix removed. */

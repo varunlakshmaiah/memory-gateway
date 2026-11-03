@@ -1,5 +1,5 @@
 import { ToolError, type Env, type R2Event } from './types';
-import { authenticate, isAdmin } from './auth';
+import { agentExists, authenticate, isAdmin } from './auth';
 import { handleMcp } from './mcp';
 import { handleApi } from './api';
 import { audit, indexNote, pruneAudit, reindex, removeNotes } from './indexer';
@@ -7,6 +7,8 @@ import { listVersions, snapshot } from './snapshot';
 import { fromKey, toKey } from './keys';
 import { isIndexable, normalizePath } from './notes';
 import { restoreNote } from './tools';
+import { authorize, oauthProvider } from './oauth';
+import type { OAuthHelpers } from '@cloudflare/workers-oauth-provider';
 import schema from '../schema.sql';
 
 const STATEMENTS = schema
@@ -82,12 +84,14 @@ async function applyEvent(env: Env, ev: R2Event): Promise<void> {
   await indexNote(env, path, await obj.text(), obj.etag, obj.size);
 }
 
-export default {
-  async fetch(req: Request, env: Env): Promise<Response> {
+/** Everything except OAuth-protected /mcp: health, admin, consent page, static-token routes. */
+const app = {
+  async fetch(req: Request, env: Env & { OAUTH_PROVIDER?: OAuthHelpers }): Promise<Response> {
     const url = new URL(req.url);
     if (url.pathname === '/health') return json({ ok: true });
     await ensureSchema(env);
     if (url.pathname.startsWith('/admin/')) return handleAdmin(req, url, env);
+    if (url.pathname === '/authorize' && env.OAUTH_PROVIDER) return authorize(req, env as Env & { OAUTH_PROVIDER: OAuthHelpers });
 
     const auth = await authenticate(req, url, env);
     if (!auth) return new Response('Unauthorized', { status: 401, headers: { 'WWW-Authenticate': 'Bearer' } });
@@ -96,6 +100,25 @@ export default {
     if (auth.pathname === '/mcp') return handleMcp(req, ctx);
     if (auth.pathname.startsWith('/api/')) return handleApi(req, url, auth.pathname, ctx);
     return new Response('Not found', { status: 404 });
+  },
+};
+
+/** /mcp with a token the OAuth provider checked: an OAuth grant or a static agent token. */
+const mcp = {
+  async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    const agent = (ctx as unknown as { props: { agent: string } }).props.agent;
+    // Removing an agent from AGENT_TOKENS also cuts off its OAuth grants.
+    if (!agentExists(env, agent)) return new Response('Unauthorized', { status: 401 });
+    await ensureSchema(env);
+    return handleMcp(req, { env, agent });
+  },
+};
+
+export default {
+  fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    // OAuth is on when the OAUTH_KV namespace is bound; without it, static tokens only.
+    if (!env.OAUTH_KV) return app.fetch(req, env);
+    return oauthProvider(new URL(req.url).origin, app, mcp).fetch(req, env, ctx);
   },
 
   /** R2 event notifications arrive here through the vault-events queue. */

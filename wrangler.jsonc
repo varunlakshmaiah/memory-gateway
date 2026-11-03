@@ -42,6 +42,9 @@
   "ai": { "binding": "AI" },
   "vectorize": [{ "binding": "VEC", "index_name": "memory-gateway-notes" }],
 
+  // OAuth sign-in for MCP clients (Claude app, ChatGPT). Remove to allow static tokens only.
+  "kv_namespaces": [{ "binding": "OAUTH_KV" }],
+
   "queues": {
     "consumers": [
       { "queue": "vault-events", "max_batch_size": 10, "max_batch_timeout": 5, "max_retries": 5 }

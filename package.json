@@ -49,5 +49,8 @@
         "description": "Which agents may add and revise notes outside inbox/agents/, as JSON, e.g. {\"claude\":[\"journal/\",\"projects/\"]}. \"{}\" means nobody."
       }
     }
+  },
+  "dependencies": {
+    "@cloudflare/workers-oauth-provider": "^1.2.4"
   }
 }

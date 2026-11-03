@@ -54,20 +54,21 @@ Then check it: `curl https://<worker>/health` should return ok, and `GET /admin/
 
 ## Connect agents
 
-The gateway is a remote MCP server over **Streamable HTTP** (stateless). Any client that can add a remote/HTTP MCP server can use it in one of two ways:
+The gateway is a remote MCP server over **Streamable HTTP** (stateless). Any client that can add a remote/HTTP MCP server can use it in one of three ways:
 
 - **Header (preferred):** URL `https://<worker>/mcp` with header `Authorization: Bearer <token>`.
-- **Token in the URL** (for clients that cannot send headers): `https://<worker>/t/<token>/mcp`. The token can then show up in logs, so give that client its own token.
+- **OAuth sign-in** (apps with a connector sign-in, such as the Claude app and ChatGPT): URL `https://<worker>/mcp`, then paste an agent token on the sign-in page. See [Sign in with OAuth](#sign-in-with-oauth-claude-app-chatgpt).
+- **Token in the URL** (for clients that can do neither): `https://<worker>/t/<token>/mcp`. The token can then show up in logs, so give that client its own token.
 
 | Client | How to connect |
 |---|---|
 | **Claude Code** | `claude mcp add --transport http memory https://<worker>/mcp --header "Authorization: Bearer <token>"` |
-| **Claude app / claude.ai / Claude Desktop** | Settings → Connectors → Add custom connector, URL `https://<worker>/t/<token>/mcp` |
+| **Claude app / claude.ai / Claude Desktop** | Settings → Connectors → Add custom connector, URL `https://<worker>/mcp` (OAuth sign-in), or `https://<worker>/t/<token>/mcp` |
 | **Cursor** | Add a remote MCP server in `mcp.json`: the `/mcp` URL plus the `Authorization` header |
 | **VS Code (GitHub Copilot agent mode)** | Add an HTTP MCP server in `mcp.json` with the URL and header |
 | **Windsurf, Cline, Continue, Zed, Goose** | Add a remote (Streamable HTTP) MCP server with the URL and header |
 | **Gemini CLI, OpenAI Codex CLI** | Add an HTTP MCP server in their settings with the URL and header |
-| **ChatGPT (developer mode connectors)** | Add a remote MCP connector with the token-in-URL form |
+| **ChatGPT (developer mode connectors)** | Add a remote MCP connector with `https://<worker>/mcp` and OAuth, or the token-in-URL form |
 | **LM Studio** (local models) | Add a remote server to its `mcp.json` with the URL and header |
 | **Hermes and other agent frameworks** (OpenAI Agents SDK, Anthropic API MCP connector, LangChain/LlamaIndex MCP adapters) | Point their MCP client at the URL with the header |
 | **n8n** | MCP Client Tool node with header auth, or the REST API below |
@@ -76,6 +77,16 @@ The gateway is a remote MCP server over **Streamable HTTP** (stateless). Any cli
 Menu names and config keys vary between client versions; see the client's MCP docs.
 
 Use one token per agent so the audit log and the `written_by` stamp tell you who wrote what. Rotate by editing `AGENT_TOKENS` and re-running `wrangler secret put`.
+
+## Sign in with OAuth (Claude app, ChatGPT)
+
+When the `OAUTH_KV` namespace is bound (the default config has it), `/mcp` also accepts OAuth 2.1 sign-in, so apps that support it connect with the plain URL `https://<worker>/mcp`, with no token in it:
+
+1. Add `https://<worker>/mcp` as a connector in the app.
+2. The app opens a sign-in page on your worker. Paste the agent token the app should act as (for example your `claude` token) and press Allow.
+3. The app gets its own OAuth tokens (access for 1 hour, refreshed for 30 days) and acts as that agent: same `written_by` stamp, same `EDIT_POLICY` folders, same audit log.
+
+There is no password or user database: knowing an agent token is the sign-in. Removing an agent from `AGENT_TOKENS` also cuts off its OAuth sessions. Static tokens keep working everywhere (`Authorization: Bearer` on `/mcp` and `/api/`, and `/t/<token>/mcp`), so existing connections do not change. Remove the `kv_namespaces` lines for static tokens only.
 
 ## Try it locally first
 
@@ -133,7 +144,7 @@ Mark any note agents must never change with `locked: true`. You review `inbox/ag
 ## Security notes
 
 - Tokens are compared in constant time and must be 16+ characters. `/health` is the only open route.
-- The `/t/<token>/` form puts the secret in the URL, so it can show up in logs. Use it only where headers are impossible, and give that agent its own token.
+- The `/t/<token>/` form puts the secret in the URL, so it can show up in logs. Prefer OAuth sign-in where the app supports it, use `/t/` only where neither OAuth nor headers work, and give that agent its own token.
 - Report vulnerabilities privately; see [SECURITY.md](SECURITY.md).
 - The daily snapshot goes to a **second** bucket (`BACKUP`). Never point it at the synced bucket: a snapshot inside the same bucket is not a backup, and Remotely Save would sync it to your devices.
 - Search results and notes are data written by you and by agents. Treat note text as untrusted input, the same as any retrieved content.
@@ -159,6 +170,7 @@ src/notes.ts     frontmatter, path safety, query building, write stamping
 src/snapshot.ts  optional backup to a second bucket
 src/keys.ts      vault path <-> bucket key
 src/auth.ts      tokens
+src/oauth.ts     OAuth sign-in and consent page
 schema.sql       D1 schema (rebuildable)
 wrangler.jsonc   config with deployable defaults (setup and the Deploy button use it)
 scripts/         setup, local seeding and the end-to-end smoke test

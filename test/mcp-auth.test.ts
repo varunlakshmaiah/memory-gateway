@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { authenticate, resolveAgent } from '../src/auth';
+import { agentExists, authenticate, resolveAgent } from '../src/auth';
 import { handleMcp } from '../src/mcp';
 import { writeNote } from '../src/tools';
 import type { Env } from '../src/types';
@@ -39,6 +39,14 @@ describe('auth', () => {
     expect(await authenticate(a, new URL(a.url), env)).toBeNull();
     expect(await authenticate(b, new URL(b.url), env)).toBeNull();
   });
+});
+
+describe('agentExists (OAuth grants end when the agent is removed)', () => {
+  const env = { AGENT_TOKENS: JSON.stringify({ claude: 'a'.repeat(32), short: 'abc' }) };
+  it('accepts a listed agent', () => expect(agentExists(env, 'claude')).toBe(true));
+  it('refuses a removed agent', () => expect(agentExists(env, 'hermes')).toBe(false));
+  it('refuses an agent whose token is too short', () => expect(agentExists(env, 'short')).toBe(false));
+  it('refuses on invalid JSON', () => expect(agentExists({ AGENT_TOKENS: '{' }, 'claude')).toBe(false));
 });
 
 describe('mcp', () => {

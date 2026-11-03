@@ -20,6 +20,8 @@ export interface Env {
   EDIT_POLICY?: string;
   /** The only folder agents may write to. Default "inbox/agents/". */
   WRITE_PREFIX?: string;
+  /** Optional KV namespace for OAuth grants and tokens. Bound = OAuth sign-in on /mcp is on. */
+  OAUTH_KV?: KVNamespace;
   MAX_NOTE_BYTES?: string;
   BACKUP_KEEP_DAYS?: string;
 }
