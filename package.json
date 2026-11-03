@@ -6,15 +6,25 @@
   "description": "Markdown vault memory gateway: R2 truth, D1 full-text + Vectorize semantic index, MCP + HTTP for any agent.",
   "license": "MIT",
   "author": "Varun",
-  "keywords": ["mcp", "obsidian", "cloudflare-workers", "r2", "d1", "vectorize", "ai-agents", "memory"],
-  "engines": { "node": ">=20" },
+  "keywords": [
+    "mcp",
+    "obsidian",
+    "cloudflare-workers",
+    "r2",
+    "d1",
+    "vectorize",
+    "ai-agents",
+    "memory"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
-    "dev": "wrangler dev",
+    "setup": "node scripts/setup.mjs",
+    "dev": "wrangler dev --var SEMANTIC_SEARCH:off",
     "deploy": "wrangler deploy",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "db:init": "wrangler d1 execute memory-gateway-index --remote --file=schema.sql",
-    "db:init:local": "wrangler d1 execute memory-gateway-index --local --file=schema.sql",
     "seed:local": "bash scripts/seed-local.sh examples/sample-vault",
     "smoke": "node scripts/smoke.mjs"
   },
@@ -23,5 +33,21 @@
     "typescript": "^5.6.0",
     "vitest": "^3.0.0",
     "wrangler": "^4.0.0"
+  },
+  "cloudflare": {
+    "bindings": {
+      "AGENT_TOKENS": {
+        "description": "JSON of agent name to token, e.g. {\"claude\":\"<token>\",\"hermes\":\"<token>\"}. Make each token with `openssl rand -hex 24`; tokens under 16 characters are refused."
+      },
+      "ADMIN_TOKEN": {
+        "description": "Token for /admin/* (reindex, status, restore). Make it with `openssl rand -hex 24`."
+      },
+      "VAULT_PREFIX": {
+        "description": "Folder inside the bucket that holds your vault, ending in \"/\". Leave empty if notes sit at the bucket root."
+      },
+      "EDIT_POLICY": {
+        "description": "Which agents may add and revise notes outside inbox/agents/, as JSON, e.g. {\"claude\":[\"journal/\",\"projects/\"]}. \"{}\" means nobody."
+      }
+    }
   }
 }

@@ -15,46 +15,32 @@ Obsidian devices --Remotely Save--> R2 bucket (markdown) --event--> Queue --> Wo
 
 Agents are told to start with `core/START-HERE.md` (see `examples/sample-vault`).
 
-## Deploy (about 15 minutes)
+## Deploy (about 5 minutes)
 
-Needs Node 20+, a Cloudflare account on the Workers paid plan (Queues need it), and an R2 bucket that holds your vault.
+Needs a Cloudflare account on the Workers paid plan (Queues need it). Pick one way:
+
+**A. One command** (Node 20+):
 
 ```bash
+git clone https://github.com/varunlakshmaiah/memory-gateway && cd memory-gateway
 npm install
-npx wrangler login
-cp wrangler.example.jsonc wrangler.jsonc   # your config; git-ignored
-
-# 1. Index database
-npx wrangler d1 create memory-gateway-index
-#    copy the printed database_id into wrangler.jsonc (d1_databases[0].database_id)
-npm run db:init
-
-# 2. Queue for bucket events
-npx wrangler queues create vault-events
-
-# 2b. Search by meaning (Vectorize index; Workers AI needs no setup)
-npx wrangler vectorize create memory-gateway-notes --dimensions=1024 --metric=cosine
-
-# 3. Bucket name: if yours is not "obsidian-vault", edit r2_buckets[0].bucket_name in wrangler.jsonc.
-#    If Remotely Save puts the vault inside a folder in the bucket (for example "MyVault/"),
-#    set VAULT_PREFIX in wrangler.jsonc to that folder name. Check with:
-npx wrangler r2 object get obsidian-vault/core/START-HERE.md --remote --pipe | head -3
-
-# 4. Secrets
-openssl rand -hex 24                     # run once per agent, plus once for the admin token
-npx wrangler secret put AGENT_TOKENS     # paste JSON, e.g. {"claude":"<token>","hermes":"<token>","claude-code":"<token>"}
-npx wrangler secret put ADMIN_TOKEN
-
-# 5. Deploy
-npm run deploy                           # prints https://memory-gateway.<you>.workers.dev
-
-# 6. Live updates: tell R2 to send an event on every create and delete
-npx wrangler r2 bucket notification create obsidian-vault --event-type object-create --queue vault-events
-npx wrangler r2 bucket notification create obsidian-vault --event-type object-delete --queue vault-events
-
-# 7. First index (repeat until "remaining" is 0 on very large vaults)
-curl -X POST -H "Authorization: Bearer <ADMIN_TOKEN>" https://<worker>/admin/reindex
+npm run setup
 ```
+
+It logs you in, asks for your vault bucket name, creates the backup bucket, D1 database, queue and Vectorize index, deploys, generates tokens (saved to the git-ignored `.secrets.local.json`), turns on bucket events and builds the first index. Safe to re-run: existing resources and tokens are kept.
+
+**B. Deploy button** (no local tools):
+
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/varunlakshmaiah/memory-gateway)
+
+Cloudflare copies the repo to your GitHub, creates the buckets, database, queue and Vectorize index, and asks for the secrets (make each token with `openssl rand -hex 24`). Point the vault bucket at the one Remotely Save syncs to. The button cannot turn on bucket events, so run these once afterwards (or changes are only picked up by the nightly reindex), then build the first index:
+
+```bash
+npx wrangler r2 bucket notification create <vault-bucket> --event-type object-create object-delete --queue vault-events
+curl -X POST -H "Authorization: Bearer <ADMIN_TOKEN>" https://<worker>/admin/reindex   # repeat until "remaining" is 0
+```
+
+If Remotely Save stores the vault inside a folder of the bucket (for example `MyVault/`), set `VAULT_PREFIX` to that folder. The index tables are created by the Worker on first use; there is no migration step.
 
 Then check it: `curl https://<worker>/health` should return ok, and `GET /admin/status` (admin token) shows note counts and recent writes.
 
@@ -93,15 +79,14 @@ Use one token per agent so the audit log and the `written_by` stamp tell you who
 
 ## Try it locally first
 
-Everything runs on your machine except the Workers AI binding, which always connects to Cloudflare (`npx wrangler login`, a free account is enough). Vectorize cannot run locally, so `.dev.vars` sets `SEMANTIC_SEARCH=off` and search is keyword-only. For a fully offline run, delete the `ai` and `vectorize` lines from your `wrangler.jsonc`.
+Everything runs on your machine except the Workers AI binding, which always connects to Cloudflare (`npx wrangler login`, a free account is enough). Vectorize cannot run locally, so `npm run dev` sets `SEMANTIC_SEARCH=off` and search is keyword-only. For a fully offline run, delete the `ai` and `vectorize` lines from your `wrangler.jsonc`.
 
 ```bash
 npm install
-cp wrangler.example.jsonc wrangler.jsonc
-cp .dev.vars.example .dev.vars
-npm run db:init:local
+printf '%s\n' 'AGENT_TOKENS={"claude":"local-dev-token-claude-0123456789","hermes":"local-dev-token-hermes-0123456789"}' \
+  'ADMIN_TOKEN=local-dev-admin-token-0123456789' > .dev.vars   # local-only tokens the smoke test expects
 npm run seed:local          # loads examples/sample-vault into a simulated R2 bucket
-npx wrangler dev            # in one terminal
+npm run dev                 # in one terminal
 npm run smoke               # in another: 40 checks across MCP, REST, auth, search, write and edit guardrails
 npm test                    # unit tests
 ```
@@ -118,7 +103,7 @@ It writes one note, `inbox/agents/smoke-test.md`, and overwrites it on every run
 
 ## Letting agents revise and add notes (optional)
 
-By default agents only add drafts to `inbox/agents/`. To let an agent revise existing notes when you ask ("update the deadline in my Jarvis note") and create new notes in those folders ("add today's journal entry"), set `EDIT_POLICY` in `wrangler.jsonc` and configure the `BACKUP` bucket:
+By default agents only add drafts to `inbox/agents/`. To let an agent revise existing notes when you ask ("update the deadline in my Jarvis note") and create new notes in those folders ("add today's journal entry"), set `EDIT_POLICY` in `wrangler.jsonc` (or in the Worker's variables in the dashboard):
 
 ```jsonc
 "EDIT_POLICY": "{\"claude\":[\"projects/\",\"notes/\"],\"claude-code\":[\"\"]}"   // "" = whole vault
@@ -150,7 +135,7 @@ Mark any note agents must never change with `locked: true`. You review `inbox/ag
 - Tokens are compared in constant time and must be 16+ characters. `/health` is the only open route.
 - The `/t/<token>/` form puts the secret in the URL, so it can show up in logs. Use it only where headers are impossible, and give that agent its own token.
 - Report vulnerabilities privately; see [SECURITY.md](SECURITY.md).
-- Keep the optional daily snapshot in a **second** bucket (uncomment `BACKUP` in `wrangler.jsonc`). A snapshot inside the same bucket is not a backup.
+- The daily snapshot goes to a **second** bucket (`BACKUP`). Never point it at the synced bucket: a snapshot inside the same bucket is not a backup, and Remotely Save would sync it to your devices.
 - Search results and notes are data written by you and by agents. Treat note text as untrusted input, the same as any retrieved content.
 
 ## Limits worth knowing
@@ -168,15 +153,15 @@ Mark any note agents must never change with `locked: true`. You review `inbox/ag
 src/index.ts     router, queue consumer, nightly cron
 src/mcp.ts       MCP JSON-RPC (stateless Streamable HTTP)
 src/api.ts       REST
-src/tools.ts     the four tools
+src/tools.ts     the tools
 src/indexer.ts   D1 index, search, reindex
 src/notes.ts     frontmatter, path safety, query building, write stamping
 src/snapshot.ts  optional backup to a second bucket
 src/keys.ts      vault path <-> bucket key
 src/auth.ts      tokens
 schema.sql       D1 schema (rebuildable)
-wrangler.example.jsonc   config template (copy to wrangler.jsonc)
-scripts/         local seeding and the end-to-end smoke test
+wrangler.jsonc   config with deployable defaults (setup and the Deploy button use it)
+scripts/         setup, local seeding and the end-to-end smoke test
 test/            unit tests (npm test)
 examples/        sample vault + test questions
 ```

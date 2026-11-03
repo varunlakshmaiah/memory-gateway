@@ -1,4 +1,5 @@
-// Copy to wrangler.jsonc (git-ignored) and fill in your values: cp wrangler.example.jsonc wrangler.jsonc
+// Deployable defaults, used by `npm run setup` and the Deploy to Cloudflare button.
+// Resources without an ID (D1, buckets, queue) are created on the first deploy.
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "memory-gateway",
@@ -25,22 +26,19 @@
 
   "r2_buckets": [
     // The bucket Remotely Save syncs your vault to.
-    { "binding": "VAULT", "bucket_name": "obsidian-vault" }
-    // Optional daily snapshots: create a SECOND bucket (never the synced one) and uncomment:
-    // , { "binding": "BACKUP", "bucket_name": "obsidian-vault-backup" }
+    { "binding": "VAULT", "bucket_name": "obsidian-vault" },
+    // Daily snapshots and edit history. Must be a SECOND bucket, never the synced one.
+    { "binding": "BACKUP", "bucket_name": "obsidian-vault-backup" }
   ],
 
   "d1_databases": [
     {
       "binding": "DB",
-      "database_name": "memory-gateway-index",
-      // From: npx wrangler d1 create memory-gateway-index
-      "database_id": "REPLACE_WITH_D1_DATABASE_ID"
+      "database_name": "memory-gateway-index"
     }
   ],
 
-  // Search by meaning. Create once: npx wrangler vectorize create memory-gateway-notes --dimensions=1024 --metric=cosine
-  // Remove both lines for keyword-only search.
+  // Search by meaning (npm run setup creates the index). Remove both lines for keyword-only search.
   "ai": { "binding": "AI" },
   "vectorize": [{ "binding": "VEC", "index_name": "memory-gateway-notes" }],
 

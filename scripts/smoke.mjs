@@ -1,6 +1,6 @@
 // End-to-end check against a running gateway (local `wrangler dev` or deployed).
 // Usage: node scripts/smoke.mjs [baseUrl] [agentToken] [adminToken]
-// Defaults match .dev.vars.example. Content checks assume the sample vault (TEST-QUESTIONS.md answers);
+// Default tokens match the local .dev.vars in the README. Content checks assume the sample vault (TEST-QUESTIONS.md answers);
 // set VAULT=real to skip them on your own vault. Writes only inbox/agents/smoke-test.md, overwritten each run.
 const base = process.argv[2] ?? 'http://127.0.0.1:8787';
 const token = process.argv[3] ?? 'local-dev-token-claude-0123456789';

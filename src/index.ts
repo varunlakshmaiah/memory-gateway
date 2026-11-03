@@ -7,6 +7,22 @@ import { listVersions, snapshot } from './snapshot';
 import { fromKey, toKey } from './keys';
 import { isIndexable, normalizePath } from './notes';
 import { restoreNote } from './tools';
+import schema from '../schema.sql';
+
+const STATEMENTS = schema
+  .replace(/--.*$/gm, '')
+  .split(';')
+  .map((s) => s.trim())
+  .filter(Boolean);
+let schemaReady: Promise<unknown> | undefined;
+
+/** Creates the index tables on first use (all IF NOT EXISTS), so a fresh deploy needs no migration step. */
+function ensureSchema(env: Env): Promise<unknown> {
+  return (schemaReady ??= env.DB.batch(STATEMENTS.map((s) => env.DB.prepare(s))).catch((e) => {
+    schemaReady = undefined;
+    throw e;
+  }));
+}
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
@@ -70,6 +86,7 @@ export default {
   async fetch(req: Request, env: Env): Promise<Response> {
     const url = new URL(req.url);
     if (url.pathname === '/health') return json({ ok: true });
+    await ensureSchema(env);
     if (url.pathname.startsWith('/admin/')) return handleAdmin(req, url, env);
 
     const auth = await authenticate(req, url, env);
@@ -83,6 +100,7 @@ export default {
 
   /** R2 event notifications arrive here through the vault-events queue. */
   async queue(batch: MessageBatch<R2Event>, env: Env): Promise<void> {
+    await ensureSchema(env);
     for (const msg of batch.messages) {
       try {
         await applyEvent(env, msg.body);
@@ -98,6 +116,7 @@ export default {
   async scheduled(_c: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     ctx.waitUntil(
       (async () => {
+        await ensureSchema(env);
         console.log('reindex', JSON.stringify(await reindex(env)));
         console.log('snapshot', JSON.stringify(await snapshot(env)));
         console.log('audit pruned', await pruneAudit(env));

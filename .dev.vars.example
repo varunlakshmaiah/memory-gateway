@@ -1,6 +1,5 @@
-# Copy to .dev.vars for local development (wrangler dev). Never commit .dev.vars.
-# Tokens must be at least 16 characters. Generate with: openssl rand -hex 24
-AGENT_TOKENS={"claude":"local-dev-token-claude-0123456789","hermes":"local-dev-token-hermes-0123456789"}
-ADMIN_TOKEN=local-dev-admin-token-0123456789
-# Vectorize cannot run in local dev; search falls back to keywords only.
-SEMANTIC_SEARCH=off
+# Secrets. The Deploy to Cloudflare button asks for these; for local dev see README "Try it locally first".
+# AGENT_TOKENS: JSON of agent name -> token, e.g. {"claude":"<token>","hermes":"<token>"}.
+# Generate each token with: openssl rand -hex 24  (tokens under 16 characters are refused)
+AGENT_TOKENS={"claude":"CHANGE_ME"}
+ADMIN_TOKEN=CHANGE_ME
