@@ -1,6 +1,6 @@
-# memory-gateway
+# memory-gateway: MCP memory server for your Obsidian vault
 
-A small Cloudflare Worker that turns a folder of markdown notes (your Obsidian vault) into a **memory layer any AI agent can plug into with one URL**.
+Give Claude, Cursor, Copilot, Gemini CLI and any other MCP-capable AI agent **long-term memory from your own notes**. A small, self-hosted Cloudflare Worker turns a folder of markdown notes (your Obsidian vault) into a **memory layer any AI agent can plug into with one URL**, over MCP or a plain REST API.
 
 - **Truth:** plain `.md` files in an R2 bucket. Obsidian syncs to it with the Remotely Save plugin.
 - **Index:** a disposable D1 (SQLite) full-text index plus a Vectorize index for search by meaning (Workers AI `bge-m3` embeddings). Delete either any time; `/admin/reindex` rebuilds them from the files.
@@ -68,12 +68,26 @@ Then check it: `curl https://<worker>/health` should return ok, and `GET /admin/
 
 ## Connect agents
 
-| Agent | How |
-|---|---|
-| Claude app / claude.ai | Settings, Connectors, add custom connector, URL `https://<worker>/t/<token>/mcp` (the app cannot send headers, so the token rides in the URL) |
-| Claude Code | `claude mcp add --transport http memory https://<worker>/mcp --header "Authorization: Bearer <token>"` |
-| Hermes or any MCP client | URL `https://<worker>/mcp`, header `Authorization: Bearer <token>` |
-| Anything else (scripts, n8n, curl) | REST: `GET /api/search?q=...&limit=5&folder=infra`, `GET /api/list?folder=...`, `GET /api/notes/<path>`, `PUT /api/notes/inbox/agents/<name>.md` (add `?overwrite=true` to replace your own earlier draft) |
+The gateway is a remote MCP server over **Streamable HTTP** (stateless). Any client that can add a remote/HTTP MCP server can use it in one of two ways:
+
+- **Header (preferred):** URL `https://<worker>/mcp` with header `Authorization: Bearer <token>`.
+- **Token in the URL** (for clients that cannot send headers): `https://<worker>/t/<token>/mcp`. The token can then show up in logs, so give that client its own token.
+
+| Client | How to connect | Tested |
+|---|---|---|
+| **Claude Code** | `claude mcp add --transport http memory https://<worker>/mcp --header "Authorization: Bearer <token>"` | Yes |
+| **Claude app / claude.ai / Claude Desktop** | Settings → Connectors → Add custom connector, URL `https://<worker>/t/<token>/mcp` | Yes |
+| **Cursor** | Add a remote MCP server in `mcp.json`: the `/mcp` URL plus the `Authorization` header | Protocol-compatible |
+| **VS Code (GitHub Copilot agent mode)** | Add an HTTP MCP server in `mcp.json` with the URL and header | Protocol-compatible |
+| **Windsurf, Cline, Continue, Zed, Goose** | Add a remote (Streamable HTTP) MCP server with the URL and header | Protocol-compatible |
+| **Gemini CLI, OpenAI Codex CLI** | Add an HTTP MCP server in their settings with the URL and header | Protocol-compatible |
+| **ChatGPT (developer mode connectors)** | Add a remote MCP connector with the token-in-URL form | Protocol-compatible |
+| **LM Studio** (local models) | Add a remote server to its `mcp.json` with the URL and header | Protocol-compatible |
+| **Hermes and other agent frameworks** (OpenAI Agents SDK, Anthropic API MCP connector, LangChain/LlamaIndex MCP adapters) | Point their MCP client at the URL with the header | Protocol-compatible |
+| **n8n** | MCP Client Tool node with header auth, or the REST API below | Protocol-compatible |
+| **Anything else** (scripts, curl, shortcuts) | REST: `GET /api/search?q=...&limit=5&folder=infra`, `GET /api/list?folder=...`, `GET /api/notes/<path>`, `PUT /api/notes/inbox/agents/<name>.md` (add `?overwrite=true` to replace your own earlier draft) | REST tested |
+
+"Protocol-compatible" means the client supports remote MCP servers over HTTP with a header or URL, which is all the gateway needs; it has not been tested end to end yet. Menu names and config keys change between client versions, so check the client's MCP docs. Reports of working setups are welcome as issues or pull requests.
 
 Use one token per agent so the audit log and the `written_by` stamp tell you who wrote what. Rotate by editing `AGENT_TOKENS` and re-running `wrangler secret put`.
 
