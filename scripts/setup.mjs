@@ -68,6 +68,7 @@ ensure(`bucket ${bucket}`, ['r2', 'bucket', 'create', bucket]);
 if (backup) ensure(`bucket ${backup}`, ['r2', 'bucket', 'create', backup]);
 ensure(`queue ${queue}`, ['queues', 'create', queue]);
 if (vec) ensure(`vectorize ${vec}`, ['vectorize', 'create', vec, '--dimensions=1024', '--metric=cosine']);
+if (vec) ensure(`vectorize ${vec} folder index`, ['vectorize', 'create-metadata-index', vec, '--propertyName=folder', '--type=string']);
 if (!db.database_id) {
   const list = wrangler(['d1', 'list', '--json']);
   let id = list.status === 0 ? JSON.parse(list.stdout).find((d) => d.name === db.database_name)?.uuid : undefined;

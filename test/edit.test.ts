@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { canEdit, isLocked, normalizePath, stampEdit } from '../src/notes';
+import { canEdit, docType, isIndexable, isLocked, linkTargets, normalizePath, stampEdit } from '../src/notes';
 import { editNote, writeNote } from '../src/tools';
 import type { Env } from '../src/types';
 
@@ -121,5 +121,30 @@ describe('writeNote outside the inbox', () => {
     const f = fakeEnv({});
     await writeNote(f.env, 'claude', 'inbox/agents/x.md', '---\nstatus: current\n---\n# x');
     expect(f.notes['inbox/agents/x.md']).toContain('status: draft');
+  });
+});
+
+describe('linkTargets', () => {
+  it('reads wikilinks without alias, heading or block parts', () => {
+    expect(linkTargets('a.md', 'See [[infra/NAS|the nas]], [[Profile#Work]] and ![[diagram^b1]].').sort()).toEqual(['diagram', 'infra/nas', 'profile']);
+  });
+  it('resolves relative markdown links and skips external ones', () => {
+    const t = linkTargets('projects/x/plan.md', '[a](../../infra/nas.md) [b](./notes.md#h) [c](https://e.com/a.md) [d](core/START-HERE.md)');
+    expect(t.sort()).toEqual(['core/start-here', 'infra/nas', 'projects/x/notes']);
+  });
+  it('ignores self-links', () => expect(linkTargets('infra/nas.md', '[[infra/nas]]')).toEqual([]));
+});
+
+describe('documents', () => {
+  it('knows the convertible types', () => {
+    expect(docType('a/b.PDF')).toBe('application/pdf');
+    expect(docType('a/b.png')).toBeUndefined();
+    expect(docType('a/b.md')).toBeUndefined();
+  });
+  it('indexes documents only when conversion is on', () => {
+    expect(isIndexable('meta/attachments/x.pdf')).toBe(false);
+    expect(isIndexable('meta/attachments/x.pdf', true)).toBe(true);
+    expect(isIndexable('.trash/x.pdf', true)).toBe(false);
+    expect(isIndexable('meta/attachments/x.jpg', true)).toBe(false);
   });
 });

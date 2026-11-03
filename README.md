@@ -5,7 +5,7 @@ Give Claude, Cursor, Copilot, Gemini CLI and any other MCP-capable AI agent **lo
 - **Truth:** plain `.md` files in an R2 bucket. Obsidian syncs to it with the Remotely Save plugin.
 - **Index:** a disposable D1 (SQLite) full-text index plus a Vectorize index for search by meaning (Workers AI `bge-m3` embeddings). Delete either any time; `/admin/reindex` rebuilds them from the files.
 - **Access:** MCP over HTTP (Claude app, Claude Code, Hermes, anything MCP) and a plain REST API (anything else).
-- **Tools:** `read_note`, `search`, `list`, `write_note`, `edit_note`. By default new notes go only to `inbox/agents/`, saved as `status: draft` and stamped with the agent name. You can allow an agent to revise and add notes in chosen folders; every edit is versioned so you can undo it.
+- **Tools:** `read_note`, `search`, `list`, `backlinks`, `write_note`, `edit_note`. By default new notes go only to `inbox/agents/`, saved as `status: draft` and stamped with the agent name. You can allow an agent to revise and add notes in chosen folders; every edit is versioned so you can undo it.
 
 ```
 Obsidian devices --Remotely Save--> R2 bucket (markdown) --event--> Queue --> Worker --> D1 full-text index
@@ -154,7 +154,10 @@ Mark any note agents must never change with `locked: true`. You review `inbox/ag
 
 - Workers allow a limited number of subrequests per invocation, so `reindex` and `snapshot` work in chunks (150 and 200 objects) and are resumable. The nightly cron (03:17 UTC) keeps catching up; run `/admin/reindex` again if `remaining` is above 0.
 - Search runs keyword full text (SQLite FTS5) and search by meaning (Vectorize) together and merges the rankings, so exact terms and paraphrases both find the note. Without the `AI` and `VEC` bindings, or with `SEMANTIC_SEARCH=off`, it falls back to keywords only. To re-embed every note, run `wrangler d1 execute memory-gateway-index --remote --command "UPDATE notes SET etag = ''"` then `/admin/reindex`.
-- Search by meaning embeds the first 8,000 characters of each note as one vector, so very long notes are found mainly by keyword. A folder-limited search applies the folder after the top 20 semantic matches.
+- Search by meaning embeds each note in chunks of about 4,000 characters, up to 16 per note (about 64,000 characters); text beyond that is found by keyword only. Folder-limited search filters by top-level folder inside Vectorize (a `folder` metadata index, created by `npm run setup`), then by subfolder.
+- After upgrading from v0.1.0, run `POST /admin/reindex?full=1` once (admin token; repeat until `remaining` is 0) so every note is re-embedded in chunks, and create the folder index: `npx wrangler vectorize create-metadata-index memory-gateway-notes --propertyName=folder --type=string`.
+- PDF, Word (`.docx`) and Excel (`.xlsx`) files in the vault are converted to text with Workers AI `toMarkdown` and indexed like notes (up to 10 MB each); `read_note` returns the converted text. Images are not converted, as that runs a paid model per image.
+- `backlinks` finds notes that link to a note through `[[wikilinks]]` or markdown links, by full path or by bare note name.
 - Semantic matches below a cosine similarity of 0.45 (`MIN_SIMILARITY` in `src/indexer.ts`) are dropped as noise. That value was tuned on one vault of about 100 notes; if nonsense queries return results, or good matches are missing, adjust it.
 - Vectorize applies new and deleted vectors 1 to 3 minutes after a change. Keyword search sees changes immediately.
 - `MAX_NOTE_BYTES` (200 KB) caps agent writes.

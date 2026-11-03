@@ -30,3 +30,12 @@ CREATE TABLE IF NOT EXISTS audit (
   action TEXT NOT NULL,
   path   TEXT NOT NULL DEFAULT ''
 );
+
+-- Note-to-note links ([[wikilinks]] and markdown links), for backlinks. dst is a lowercase path
+-- without ".md", as written in the link: "infra/nas" or just "nas" (Obsidian's shortest form).
+CREATE TABLE IF NOT EXISTS links (
+  src TEXT NOT NULL,
+  dst TEXT NOT NULL,
+  PRIMARY KEY (src, dst)
+);
+CREATE INDEX IF NOT EXISTS links_dst ON links (dst);

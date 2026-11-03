@@ -58,9 +58,9 @@ describe('mcp', () => {
     expect(body.result.instructions).toContain('core/START-HERE.md');
     expect(body.result.capabilities.tools).toBeDefined();
   });
-  it('lists the five tools', async () => {
+  it('lists the six tools', async () => {
     const body = (await (await handleMcp(rpc('tools/list'), ctx)).json()) as any;
-    expect(body.result.tools.map((t: any) => t.name)).toEqual(['read_note', 'search', 'list', 'write_note', 'edit_note']);
+    expect(body.result.tools.map((t: any) => t.name)).toEqual(['read_note', 'search', 'list', 'backlinks', 'write_note', 'edit_note']);
   });
   it('answers ping', async () => {
     const body = (await (await handleMcp(rpc('ping'), ctx)).json()) as any;

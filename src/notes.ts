@@ -95,16 +95,68 @@ export function stampEdit(text: string, agent: string, today: string): string {
   return `---\n${[...kept, ...stamp].join('\n')}\n---\n${text.slice(m[0].length)}`;
 }
 
+/** Lowercase link target without ".md": the form stored in the links table and matched by backlinks. */
+export const linkKey = (p: string) => p.replace(/\.md$/i, '').toLowerCase();
+
+/**
+ * Notes a note links to: [[wikilinks]] (alias, heading and block parts dropped) and markdown links to
+ * .md files. "./" and "../" links resolve against the note's folder; other targets stay as written.
+ */
+export function linkTargets(path: string, body: string): string[] {
+  const out = new Set<string>();
+  const dir = path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '';
+  const add = (raw: string) => {
+    let t = raw.trim();
+    if (/^\.\.?\//.test(t)) {
+      const parts = dir ? dir.split('/') : [];
+      for (const seg of t.split('/')) {
+        if (seg === '..') parts.pop();
+        else if (seg !== '.') parts.push(seg);
+      }
+      t = parts.join('/');
+    }
+    t = t.replace(/^\/+/, '');
+    if (t) out.add(linkKey(t));
+  };
+  for (const m of body.matchAll(/\[\[([^\]|#^]+)[^\]]*\]\]/g)) add(m[1]);
+  for (const m of body.matchAll(/\]\(<?([^)>\s]+\.md)(?:#[^)]*)?>?\)/gi)) {
+    if (/^[a-z][a-z0-9+.-]*:/i.test(m[1])) continue; // external URL
+    try {
+      add(decodeURIComponent(m[1]));
+    } catch {
+      add(m[1]);
+    }
+  }
+  out.delete(linkKey(path));
+  return [...out];
+}
+
 export function requireMarkdown(path: string): string {
   if (!path.toLowerCase().endsWith('.md')) throw new ToolError('Only .md notes are supported');
   return path;
 }
 
-/** Notes the index covers: markdown files outside hidden folders (.obsidian, .trash, ...). */
-export function isIndexable(path: string): boolean {
+/**
+ * Attachments that Workers AI toMarkdown turns into searchable text. Images are left out on purpose:
+ * converting them runs a paid vision model on every photo in the vault.
+ */
+const DOC_TYPES: Record<string, string> = {
+  pdf: 'application/pdf',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+};
+
+/** MIME type of a convertible document, or undefined for anything else. */
+export const docType = (path: string): string | undefined => DOC_TYPES[path.slice(path.lastIndexOf('.') + 1).toLowerCase()];
+
+/**
+ * Files the index covers: markdown notes (and, with `docs`, convertible documents) outside hidden
+ * folders (.obsidian, .trash, ...).
+ */
+export function isIndexable(path: string, docs = false): boolean {
   // Templates are empty skeletons: still readable, but kept out of search.
   return (
-    path.toLowerCase().endsWith('.md') &&
+    (path.toLowerCase().endsWith('.md') || (docs && !!docType(path))) &&
     !path.split('/').some((s) => s.startsWith('.')) &&
     !path.startsWith('meta/templates/')
   );

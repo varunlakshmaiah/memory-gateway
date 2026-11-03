@@ -3,11 +3,12 @@
  * MCP, REST or any future protocol only has to call these functions.
  */
 import { ToolError, type Env } from './types';
-import { agentStamp, canEdit, isLocked, normalizePath, requireMarkdown, stampEdit, stampNote, writtenBy } from './notes';
+import { agentStamp, canEdit, docType, isLocked, normalizePath, requireMarkdown, stampEdit, stampNote, writtenBy } from './notes';
 import { today, toKey, writePrefix } from './keys';
 import { readVersion, saveVersion } from './snapshot';
 import {
   audit,
+  backlinks,
   indexNote,
   listFolder,
   listFolders,
@@ -17,7 +18,14 @@ import {
 } from './indexer';
 
 export async function readNote(env: Env, rawPath: unknown): Promise<{ path: string; text: string }> {
-  const path = requireMarkdown(normalizePath(rawPath));
+  const raw = normalizePath(rawPath);
+  // Documents (PDF, Word, Excel) are read as the text the index converted them to.
+  if (docType(raw)) {
+    const row = await env.DB.prepare('SELECT body FROM notes_fts WHERE path = ?').bind(raw).first<{ body: string }>();
+    if (!row) throw new ToolError(`Document not found or not indexed yet: ${raw}.`, 404);
+    return { path: raw, text: row.body };
+  }
+  const path = requireMarkdown(raw);
   const obj = await env.VAULT.get(toKey(env, path));
   if (!obj) throw new ToolError(`Note not found: ${path}. Use search or list to find the right path.`, 404);
   return { path, text: await obj.text() };
@@ -192,7 +200,7 @@ export const TOOLS = [
   {
     name: 'read_note',
     description:
-      "Read one note from the user's markdown memory vault. Start every session by reading `core/START-HERE.md`, which explains who the user is, how they like you to work, and how the vault is organised.",
+      "Read one note from the user's markdown memory vault. Start every session by reading `core/START-HERE.md`, which explains who the user is, how they like you to work, and how the vault is organised. PDF, Word and Excel files found by search are returned as their converted text.",
     inputSchema: {
       type: 'object',
       properties: { path: { type: 'string', description: 'Vault-relative path, for example "core/START-HERE.md"' } },
@@ -224,6 +232,17 @@ export const TOOLS = [
       properties: { folder: { type: 'string', description: 'Folder to list, for example "projects". Omit for the top level.' } },
     },
     annotations: { title: 'List notes', readOnlyHint: true, openWorldHint: false },
+  },
+  {
+    name: 'backlinks',
+    description:
+      'List the notes that link to a note ([[wikilinks]] or markdown links). Use it to find related context: the projects, people or incidents that mention a note.',
+    inputSchema: {
+      type: 'object',
+      properties: { path: { type: 'string', description: 'Vault-relative path, for example "infra/nas-synology.md"' } },
+      required: ['path'],
+    },
+    annotations: { title: 'Find backlinks', readOnlyHint: true, openWorldHint: false },
   },
   {
     name: 'write_note',
@@ -267,6 +286,12 @@ export async function callTool(env: Env, agent: string, name: string, args: Reco
     }
     case 'list':
       return formatList(await listNotes(env, args.folder));
+    case 'backlinks': {
+      const path = requireMarkdown(normalizePath(args.path));
+      const rows = await backlinks(env, path);
+      if (!rows.length) return `No notes link to ${path}.`;
+      return [`Notes linking to ${path} (${rows.length}):`, ...rows.map((n) => `- ${n.path}${n.status && n.status !== 'current' ? ` [${n.status}]` : ''}${n.description ? ' - ' + n.description : ''}`)].join('\n');
+    }
     case 'write_note': {
       const r = await writeNote(env, agent, args.path, args.content, args.overwrite === true);
       const kind = r.path.startsWith(writePrefix(env)) ? ' as a draft' : '';

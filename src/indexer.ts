@@ -1,5 +1,5 @@
 import type { Env } from './types';
-import { buildFtsQuery, isIndexable, parseNote } from './notes';
+import { buildFtsQuery, docType, isIndexable, linkKey, linkTargets, parseNote } from './notes';
 import { fromKey, toKey, vaultPrefix } from './keys';
 
 export interface SearchHit {
@@ -13,8 +13,10 @@ export interface SearchHit {
 }
 
 const EMBED_MODEL = '@cf/baai/bge-m3';
-// shortcut: one vector per note from its first 8000 characters; chunk notes if long ones stop being found by meaning.
-const EMBED_CHARS = 8000;
+// Long notes are embedded in chunks so text deep in a note is found by meaning too.
+const CHUNK_CHARS = 4000;
+// shortcut: text past 16 chunks (~64k characters) is found by keyword only; raise if such notes matter.
+const MAX_CHUNKS = 16;
 // Cosine similarity below this is noise (unrelated queries still return nearest neighbours).
 // shortcut: tuned on a 111-note vault (nonsense tops out ~0.43, right notes 0.49-0.68); re-probe as the vault grows.
 const MIN_SIMILARITY = 0.45;
@@ -22,15 +24,65 @@ const MIN_SIMILARITY = 0.45;
 // Local `wrangler dev` has a VEC binding that throws, so .dev.vars turns semantic search off there.
 const semanticOn = (env: Env) => !!(env.AI && env.VEC) && env.SEMANTIC_SEARCH !== 'off';
 
-async function embed(env: Env, text: string): Promise<number[]> {
-  const r = (await env.AI!.run(EMBED_MODEL, { text: [text] })) as { data: number[][] };
-  return r.data[0];
+async function embed(env: Env, texts: string[]): Promise<number[][]> {
+  const r = (await env.AI!.run(EMBED_MODEL, { text: texts })) as { data: number[][] };
+  return r.data;
 }
 
-/** Vectorize ids are capped at 64 bytes, paths are not, so the id is the path's SHA-256. */
-async function vecId(path: string): Promise<string> {
+/**
+ * Vector ids of a note's chunks. Ids are capped at 64 bytes and paths are not, so they come from the
+ * path's SHA-256: chunk 0 is the full hash (the id notes had before chunking), chunk i is 60 hex + "-i".
+ */
+async function vecIds(path: string, n = MAX_CHUNKS): Promise<string[]> {
   const d = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(path));
-  return [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, '0')).join('');
+  const hex = [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, '0')).join('');
+  return Array.from({ length: n }, (_, i) => (i === 0 ? hex : `${hex.slice(0, 60)}-${i}`));
+}
+
+/** Splits text into chunks of at most `size` characters, at paragraph breaks where possible. */
+export function chunkText(text: string, size = CHUNK_CHARS, max = MAX_CHUNKS): string[] {
+  const out: string[] = [];
+  let cur = '';
+  for (const para of text.split(/\n{2,}/)) {
+    for (let p = para; p; p = p.slice(size)) {
+      const piece = p.slice(0, size);
+      if (cur && cur.length + piece.length + 2 > size) {
+        out.push(cur);
+        cur = '';
+      }
+      cur = cur ? `${cur}\n\n${piece}` : piece;
+    }
+  }
+  if (cur.trim() || !out.length) out.push(cur);
+  return out.slice(0, max);
+}
+
+/** Top-level folder of a path ('' at the vault root): indexed in Vectorize so folder searches filter there. */
+const topFolder = (path: string) => (path.includes('/') ? path.slice(0, path.indexOf('/')) : '');
+
+/** Documents (PDF, Word, Excel) are indexed when Workers AI is bound, as it converts them to text. */
+export const docsOn = (env: Env) => !!env.AI;
+const MAX_DOC_BYTES = 10_000_000;
+// D1 caps a row at about 2 MB; converted spreadsheets can be far bigger than that.
+const MAX_DOC_CHARS = 300_000;
+
+/**
+ * Text to index for a vault object: a note as it is, a document converted to markdown. A document that
+ * cannot be converted still gets a placeholder, so its etag is recorded and it is not retried every run.
+ */
+export async function objectText(env: Env, path: string, obj: R2ObjectBody): Promise<string> {
+  const type = docType(path);
+  if (!type) return obj.text();
+  const name = path.slice(path.lastIndexOf('/') + 1);
+  const ext = name.slice(name.lastIndexOf('.') + 1).toUpperCase();
+  const head = `---\ntype: document\ndescription: "${ext} file, converted to text for search"\n---\n`;
+  if (obj.size > MAX_DOC_BYTES || !env.AI) return `${head}# ${name}\n\n(Too large or no converter: not converted.)`;
+  const r = await env.AI.toMarkdown({ name, blob: new Blob([await obj.arrayBuffer()], { type }) });
+  if (r.format === 'error') {
+    console.error('toMarkdown failed', path, r.error);
+    return `${head}# ${name}\n\n(Could not be converted to text.)`;
+  }
+  return head + r.data.slice(0, MAX_DOC_CHARS);
 }
 
 /** Reciprocal rank fusion: merges ranked path lists; a path ranked well in either list rises. */
@@ -50,8 +102,14 @@ export async function indexNote(
   const n = parseNote(path, text);
   // Vector first: if it fails, the D1 etag stays stale, so the event retry or nightly reindex tries again.
   if (semanticOn(env)) {
-    const values = await embed(env, `${n.title}\n${n.description}\n${n.body}`.slice(0, EMBED_CHARS));
-    await env.VEC!.upsert([{ id: await vecId(path), values, metadata: { path } }]);
+    const chunks = chunkText(n.body);
+    // Each chunk carries the title and description, so a chunk deep in the note still says what it is about.
+    const values = await embed(env, chunks.map((c) => `${n.title}\n${n.description}\n${c}`));
+    const ids = await vecIds(path);
+    const metadata = { path, folder: topFolder(path) };
+    await env.VEC!.upsert(values.map((v, i) => ({ id: ids[i], values: v, metadata })));
+    // Drop chunks left over from a longer earlier version of the note.
+    if (chunks.length < MAX_CHUNKS) await env.VEC!.deleteByIds(ids.slice(chunks.length));
   }
   await env.DB.batch([
     env.DB.prepare('DELETE FROM notes_fts WHERE path = ?').bind(path),
@@ -65,17 +123,20 @@ export async function indexNote(
       n.description,
       n.body,
     ),
+    env.DB.prepare('DELETE FROM links WHERE src = ?').bind(path),
+    ...linkTargets(path, n.body).map((dst) => env.DB.prepare('INSERT OR IGNORE INTO links (src, dst) VALUES (?,?)').bind(path, dst)),
   ]);
 }
 
 export async function removeNotes(env: Env, paths: string[]): Promise<void> {
   for (let i = 0; i < paths.length; i += 40) {
     const chunk = paths.slice(i, i + 40);
-    if (semanticOn(env)) await env.VEC!.deleteByIds(await Promise.all(chunk.map(vecId)));
+    if (semanticOn(env)) await env.VEC!.deleteByIds((await Promise.all(chunk.map((p) => vecIds(p)))).flat());
     await env.DB.batch(
       chunk.flatMap((p) => [
         env.DB.prepare('DELETE FROM notes_fts WHERE path = ?').bind(p),
         env.DB.prepare('DELETE FROM notes WHERE path = ?').bind(p),
+        env.DB.prepare('DELETE FROM links WHERE src = ?').bind(p),
       ]),
     );
   }
@@ -153,18 +214,37 @@ export async function searchIndex(
 async function semanticPaths(env: Env, query: string, folder?: string): Promise<string[]> {
   if (!semanticOn(env)) return [];
   try {
-    // topK 20 is Vectorize's cap when returning metadata.
-    // shortcut: folder is filtered after the top 20, so a folder search can miss in-folder matches; add a folder metadata index if it does.
-    const r = await env.VEC!.query(await embed(env, query), { topK: 20, returnMetadata: 'all' });
     const prefix = folder ? folder.replace(/^\/+|\/+$/g, '') + '/' : '';
-    return r.matches
+    // Top-level folder is filtered inside Vectorize (metadata index on "folder"); deeper folders after.
+    const [vector] = await embed(env, [query]);
+    const r = await env.VEC!.query(vector, {
+      topK: 20, // Vectorize's cap when returning metadata
+      returnMetadata: 'all',
+      ...(prefix ? { filter: { folder: topFolder(prefix) } } : {}),
+    });
+    // Matches come back best first, one per chunk: keep each note's first (best) chunk.
+    const paths = r.matches
       .filter((m) => m.score >= MIN_SIMILARITY)
       .map((m) => String(m.metadata?.path ?? ''))
       .filter((p) => p && p.startsWith(prefix));
+    return [...new Set(paths)];
   } catch (e) {
     console.error('semantic search failed', e);
     return [];
   }
+}
+
+/** Notes linking to `path`, by full path ("infra/nas") or by bare name ("nas"), as Obsidian allows both. */
+export async function backlinks(env: Env, path: string): Promise<ListRow[]> {
+  const full = linkKey(path);
+  const base = full.slice(full.lastIndexOf('/') + 1);
+  const res = await env.DB.prepare(
+    `SELECT DISTINCT n.path, n.description, n.status FROM links l JOIN notes n ON n.path = l.src
+      WHERE l.dst IN (?, ?) ORDER BY n.path LIMIT 200`,
+  )
+    .bind(full, base)
+    .all<ListRow>();
+  return res.results ?? [];
 }
 
 export interface ListRow {
@@ -231,7 +311,7 @@ export async function reindex(env: Env, maxFetch = 150): Promise<ReindexResult> 
     const l = await env.VAULT.list({ prefix: prefix || undefined, cursor, limit: 1000 });
     for (const o of l.objects) {
       const p = fromKey(env, o.key);
-      if (p && isIndexable(p)) keys.set(p, o.etag);
+      if (p && isIndexable(p, docsOn(env))) keys.set(p, o.etag);
     }
     cursor = l.truncated ? l.cursor : undefined;
   } while (cursor);
@@ -250,7 +330,7 @@ export async function reindex(env: Env, maxFetch = 150): Promise<ReindexResult> 
       await removeNotes(env, [p]);
       continue;
     }
-    await indexNote(env, p, await o.text(), o.etag, o.size);
+    await indexNote(env, p, await objectText(env, p, o), o.etag, o.size);
     done++;
   }
   return { total: keys.size, indexed: done, removed: gone.length, remaining: Math.max(0, stale.length - done) };

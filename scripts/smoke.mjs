@@ -36,7 +36,7 @@ ok('wrong token is rejected', (await fetch(`${base}/mcp`, { method: 'POST', head
 const init = await rpc('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'smoke', version: '1' } });
 ok('initialize', init.body.result?.serverInfo?.name === 'memory-gateway', JSON.stringify(init.body));
 const tl = await rpc('tools/list');
-ok('five tools listed', tl.body.result?.tools?.length === 5);
+ok('six tools listed', tl.body.result?.tools?.length === 6);
 ok('URL-token auth works', (await rpc('tools/list', undefined, `${base}/t/${token}/mcp`, {})).status === 200);
 
 // --- index the vault
@@ -79,6 +79,8 @@ if (sample) {
     const hit = r.text.includes(expected);
     ok(`search: ${q}`, hit && (!mustContain || r.text.includes(mustContain)), r.text.split('\n').slice(0, 6).join(' | '));
   }
+  const bl = await tool('backlinks', { path: 'infra/nas-synology.md' });
+  ok('backlinks finds linking notes', bl.text.includes('infra/backup-strategy.md') && bl.text.includes('core/START-HERE.md'), bl.text.slice(0, 300));
   const oldNet = await tool('search', { query: 'old network address range retired', limit: 5 });
   ok('outdated note is flagged', /old-network\.md[^\n]*\[outdated\]/.test(oldNet.text), oldNet.text.slice(0, 300));
   const scoped = await tool('search', { query: 'dns', folder: 'infra', limit: 10 });
@@ -164,7 +166,7 @@ else {
   })).json();
   ok('code exchanged for tokens', !!tok.access_token && !!tok.refresh_token, JSON.stringify(tok).slice(0, 200));
   const viaOAuth = await rpc('tools/list', {}, `${base}/mcp`, { authorization: `Bearer ${tok.access_token}` });
-  ok('MCP works with the OAuth token', viaOAuth.body?.result?.tools?.length === 5, JSON.stringify(viaOAuth).slice(0, 200));
+  ok('MCP works with the OAuth token', viaOAuth.body?.result?.tools?.length === 6, JSON.stringify(viaOAuth).slice(0, 200));
   const forged = await fetch(`${base}/mcp`, { method: 'POST', headers: { authorization: 'Bearer forged:token:value' }, body: '{}' });
   ok('forged OAuth token is refused', forged.status === 401);
 }

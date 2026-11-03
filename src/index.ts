@@ -2,7 +2,7 @@ import { ToolError, type Env, type R2Event } from './types';
 import { agentExists, authenticate, isAdmin, tooMany, withinLimit } from './auth';
 import { handleMcp } from './mcp';
 import { handleApi } from './api';
-import { audit, indexNote, pruneAudit, reindex, removeNotes } from './indexer';
+import { audit, docsOn, indexNote, objectText, pruneAudit, reindex, removeNotes } from './indexer';
 import { listVersions, snapshot } from './snapshot';
 import { fromKey, toKey } from './keys';
 import { isIndexable, normalizePath } from './notes';
@@ -33,6 +33,8 @@ async function handleAdmin(req: Request, url: URL, env: Env): Promise<Response> 
   if (!(await isAdmin(req, env))) return new Response('Unauthorized', { status: 401 });
   if (url.pathname === '/admin/reindex' && req.method === 'POST') {
     const max = Math.min(300, Number(url.searchParams.get('max') ?? 150) || 150);
+    // full=1 marks every note stale, so all are re-embedded (after a chunking or model change). Resumable.
+    if (url.searchParams.get('full') === '1') await env.DB.prepare("UPDATE notes SET etag = ''").run();
     const r = await reindex(env, max);
     await audit(env, 'admin', 'reindex', JSON.stringify(r));
     return json(r);
@@ -71,7 +73,7 @@ async function applyEvent(env: Env, ev: R2Event): Promise<void> {
   const key = ev.object?.key;
   if (!key) return;
   const path = fromKey(env, key);
-  if (!path || !isIndexable(path)) return;
+  if (!path || !isIndexable(path, docsOn(env))) return;
   if (/^(DeleteObject|LifecycleDeletion)$/i.test(ev.action)) {
     await removeNotes(env, [path]);
     return;
@@ -81,7 +83,7 @@ async function applyEvent(env: Env, ev: R2Event): Promise<void> {
     await removeNotes(env, [path]);
     return;
   }
-  await indexNote(env, path, await obj.text(), obj.etag, obj.size);
+  await indexNote(env, path, await objectText(env, path, obj), obj.etag, obj.size);
 }
 
 /** Everything except OAuth-protected /mcp: health, admin, consent page, static-token routes. */

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fuse, pruneAudit } from '../src/indexer';
+import { chunkText, fuse, pruneAudit } from '../src/indexer';
 import type { Env } from '../src/types';
 
 describe('fuse', () => {
@@ -31,4 +31,19 @@ describe('pruneAudit', () => {
     const ageDays = (Date.now() - Date.parse(bound)) / 86_400_000;
     expect(Math.round(ageDays)).toBe(90);
   });
+});
+
+describe('chunkText', () => {
+  it('keeps a short note as one chunk', () => expect(chunkText('a\n\nb', 100)).toEqual(['a\n\nb']));
+  it('splits at paragraph breaks without exceeding the size', () => {
+    const paras = Array.from({ length: 10 }, (_, i) => `p${i} ` + 'x'.repeat(30));
+    const chunks = chunkText(paras.join('\n\n'), 80);
+    expect(chunks.every((c) => c.length <= 80)).toBe(true);
+    expect(chunks.join('\n\n')).toBe(paras.join('\n\n'));
+  });
+  it('hard-splits one huge paragraph and caps the count', () => {
+    expect(chunkText('y'.repeat(250), 100)).toEqual(['y'.repeat(100), 'y'.repeat(100), 'y'.repeat(50)]);
+    expect(chunkText('z'.repeat(1000), 100, 3)).toHaveLength(3);
+  });
+  it('returns one chunk for an empty body', () => expect(chunkText('')).toEqual(['']));
 });
